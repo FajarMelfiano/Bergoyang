@@ -9,8 +9,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/guest.css" />
 </head>
-<body>
+<body data-auth="false">
   <header class="topbar">
     <span class="brand" id="brand">Request Lagu Live</span>
     <span class="live-badge" id="liveBadge" data-open="true">
@@ -18,9 +19,64 @@
       <span id="liveText">Request dibuka</span>
     </span>
     <a class="topbar-link" href="/dj">Panel DJ</a>
+
+    <details class="guser" id="guestMenu" hidden>
+      <summary class="guser__trigger">
+        <span id="guestChip"></span>
+        <svg class="guser__caret" width="12" height="8" viewBox="0 0 12 8" aria-hidden="true" focusable="false">
+          <path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </summary>
+      <div class="guser__panel">
+        <p class="guser__title">Ganti password saya</p>
+        <form id="passForm">
+          <div class="field">
+            <label for="passLama">Password lama</label>
+            <input id="passLama" type="password" autocomplete="current-password" required />
+          </div>
+          <div class="field">
+            <label for="passBaru">Password baru</label>
+            <input id="passBaru" type="password" autocomplete="new-password" minlength="6"
+                   required placeholder="minimal 6 karakter" />
+          </div>
+          <div class="field">
+            <label for="passBaru2">Ulangi password baru</label>
+            <input id="passBaru2" type="password" autocomplete="new-password" minlength="6" required />
+          </div>
+          <button class="btn btn--primary btn--block" type="submit">Ganti password</button>
+          <p class="form-note" id="passNote" role="alert"></p>
+        </form>
+        <div class="guser__sep" aria-hidden="true"></div>
+        <button class="btn btn--ghost btn--block" id="logoutBtn" type="button">Keluar</button>
+      </div>
+    </details>
   </header>
 
+  <!-- GERBANG LOGIN: hanya panitia terdaftar yang bisa request -->
+  <div class="gate" id="loginGate">
+    <form class="form-slip" id="loginForm" novalidate>
+      <h2>Masuk dulu</h2>
+      <p class="hint" id="loginGateHint">Halaman ini privat — hanya panitia terdaftar yang bisa kirim request. Masuk pakai username &amp; password kamu.</p>
+      <div class="field">
+        <label for="loginUser">Username</label>
+        <input id="loginUser" name="username" autocomplete="username" autocapitalize="off"
+               spellcheck="false" required placeholder="username kamu" />
+      </div>
+      <div class="field">
+        <label for="loginPass">Password</label>
+        <input id="loginPass" type="password" autocomplete="current-password" required placeholder="password kamu" />
+      </div>
+      <button class="btn btn--primary" type="submit">Masuk</button>
+      <p class="form-note" id="loginNote" role="alert"></p>
+    </form>
+  </div>
+
   <section class="hero">
+    <div class="adzan-strip" id="adzanStrip" hidden role="status">
+      <span class="adzan-strip__dot" aria-hidden="true"></span>
+      <span id="adzanStripText">Sedang adzan — pemutaran lanjut otomatis setelah selesai</span>
+    </div>
     <h1 id="eventName">Request Lagu Live</h1>
     <p class="hero-tag" id="eventTagline">Kirim lagu, tunggu giliran, langsung diputar.</p>
     <div class="hero-stats">

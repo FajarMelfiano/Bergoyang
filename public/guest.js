@@ -1,12 +1,15 @@
-/* Halaman tamu: form request, pencarian lagu, antrean real-time, voting. */
+/* Halaman tamu: form request, pencarian lagu, antrean real-time, voting.
+ * Halaman ini privat: hanya user terdaftar (login) yang bisa request & vote. */
 'use strict';
 
-const DEVICE_KEY = 'requestlagu.device';
-let deviceId = localStorage.getItem(DEVICE_KEY);
-if (!deviceId) {
-  deviceId = 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-  localStorage.setItem(DEVICE_KEY, deviceId);
-}
+const TOKEN_KEY = 'requestlagu.token';
+const USER_KEY = 'requestlagu.user';
+let token = sessionStorage.getItem(TOKEN_KEY) || '';
+/** @type {{username:string,nama:string,peran:string}|null} */
+let user = null;
+try { user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); } catch { user = null; }
+// identitas request/vote = username yang login (server pakai token, bukan device)
+let deviceId = (user && user.username) || '';
 
 let state = null;
 let searchTimer = null;
@@ -61,12 +64,169 @@ function toast(message, tone = 'ok') {
 async function post(url, body) {
   const res = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', 'x-dj-token': token },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
+  if (res.status === 401) {
+    // sesi habis atau belum login → kembali ke gerbang login
+    hanguskanSesi();
+    throw new Error('Sesi kamu habis. Masuk ulang untuk request lagi.');
+  }
   if (!res.ok) throw new Error(data.error || `Gagal (${res.status})`);
   return data;
+}
+
+/* ------------------------------------------------------------- login tamu */
+
+function showLogin() {
+  document.body.dataset.auth = 'false';
+  $('guestMenu').hidden = true;
+  $('guestMenu').removeAttribute('open');
+  $('guestChip').textContent = '';
+}
+
+function showApp() {
+  document.body.dataset.auth = 'true';
+  $('guestMenu').hidden = false;
+  $('guestChip').textContent = user ? user.nama : '';
+  if (user && user.nama) $('requester').value = user.nama;
+}
+
+function hanguskanSesi(notify = true) {
+  token = '';
+  user = null;
+  deviceId = '';
+  sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(USER_KEY);
+  showLogin();
+  if (notify) toast('Sesi habis — masuk ulang untuk request lagi.', 'error');
+}
+
+function setupLogin() {
+  $('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = $('loginNote');
+    try {
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: $('loginUser').value.trim(),
+          password: $('loginPass').value,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Gagal masuk.');
+      token = data.token;
+      user = { username: data.username, nama: data.nama, peran: data.peran };
+      deviceId = user.username;
+      sessionStorage.setItem(TOKEN_KEY, token);
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      note.textContent = '';
+      $('loginUser').value = '';
+      $('loginPass').value = '';
+      showApp();
+      toast(`Halo ${user.nama}! Kamu bisa request lagu sekarang.`);
+    } catch (err) {
+      note.dataset.tone = 'error';
+      note.textContent = err.message;
+    }
+  });
+
+  $('logoutBtn').addEventListener('click', () => {
+    hanguskanSesi(false);
+    toast('Kamu sudah keluar. Masuk lagi kapan saja.');
+  });
+}
+
+/* ----------------------------------------------------- ganti password tamu */
+
+function setupPassword() {
+  $('passForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const note = $('passNote');
+    const baru = $('passBaru').value;
+    if (baru !== $('passBaru2').value) {
+      note.dataset.tone = 'error';
+      note.textContent = 'Password baru tidak sama di kedua kotak.';
+      return;
+    }
+    try {
+      const data = await post('/api/dj/password', {
+        passwordLama: $('passLama').value,
+        passwordBaru: baru,
+      });
+      token = data.token; // password berubah → token baru
+      sessionStorage.setItem(TOKEN_KEY, token);
+      note.dataset.tone = 'ok';
+      note.textContent = 'Password diganti.';
+      $('passLama').value = '';
+      $('passBaru').value = '';
+      $('passBaru2').value = '';
+    } catch (err) {
+      note.dataset.tone = 'error';
+      note.textContent = err.message;
+    }
+  });
+}
+
+/* --------------------------------------------- menu user (tutup otomatis) */
+
+function setupGuestMenu() {
+  const menu = $('guestMenu');
+  document.addEventListener('click', (e) => {
+    if (menu.hasAttribute('open') && !menu.contains(e.target)) menu.removeAttribute('open');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && menu.hasAttribute('open')) {
+      menu.removeAttribute('open');
+      const trigger = menu.querySelector('summary');
+      if (trigger) trigger.focus();
+    }
+  });
+}
+
+/* --------------------------------------------------- strip adzan di tamu */
+
+const ADZAN_NAMA = { Fajr: 'Subuh', Dhuhr: 'Dzuhur', Asr: 'Ashar', Maghrib: 'Maghrib', Isha: 'Isya' };
+let adzanTamu = { jadwal: null, durasi: 10, enabled: true, tanggal: '' };
+
+function tanggalLocal() {
+  const p = (n) => String(n).padStart(2, '0');
+  const d = new Date();
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+}
+
+async function muatAdzanTamu() {
+  try {
+    const res = await fetch(`/api/adzan?tanggal=${encodeURIComponent(tanggalLocal())}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return;
+    adzanTamu.jadwal = data.jadwal || null;
+    adzanTamu.durasi = Number(data.durasi) || 10;
+    adzanTamu.enabled = data.enabled !== false;
+    adzanTamu.tanggal = tanggalLocal();
+  } catch { /* offline — diam */ }
+  cekAdzanTamu();
+}
+
+function cekAdzanTamu() {
+  const strip = $('adzanStrip');
+  if (!strip) return;
+  if (adzanTamu.tanggal && adzanTamu.tanggal !== tanggalLocal()) { muatAdzanTamu(); return; }
+  if (!adzanTamu.enabled || !adzanTamu.jadwal) { strip.hidden = true; return; }
+  const sekarang = new Date();
+  const menit = sekarang.getHours() * 60 + sekarang.getMinutes();
+  let nama = null;
+  for (const [key, jam] of Object.entries(adzanTamu.jadwal)) {
+    const bagian = String(jam).split(':').map(Number);
+    if (bagian.length < 2 || bagian.some((n) => !Number.isFinite(n))) continue;
+    const mulai = bagian[0] * 60 + bagian[1];
+    if (menit >= mulai && menit < mulai + adzanTamu.durasi) { nama = ADZAN_NAMA[key] || key; break; }
+  }
+  strip.hidden = !nama;
+  if (nama) $('adzanStripText').textContent = `Sedang adzan ${nama} — lagu lanjut otomatis setelah selesai`;
 }
 
 /* -------------------------------------------------------------- antrean */
@@ -193,7 +353,7 @@ function renderDone(container, tracks) {
 async function handleVote(track, button) {
   button.disabled = true;
   try {
-    const result = await post('/api/vote', { deviceId, trackId: track.id });
+    const result = await post('/api/vote', { trackId: track.id });
     const small = button.querySelector('small');
     if (small) small.textContent = String(result.voteCount);
     button.setAttribute('aria-pressed', result.voted ? 'true' : 'false');
@@ -363,7 +523,6 @@ function setupForm() {
     }
 
     const payload = {
-      deviceId,
       title,
       artist: $('artist').value.trim(),
       requester: $('requester').value.trim(),
@@ -442,6 +601,9 @@ function connect() {
 
 async function boot() {
   setupForm();
+  setupLogin();
+  setupPassword();
+  setupGuestMenu();
   try {
     const res = await fetch('/api/state');
     applyState(await res.json());
@@ -451,6 +613,24 @@ async function boot() {
   connect();
   // perbarui label waktu relatif
   setInterval(() => { if (state) render(); }, 60000);
+  // cek sesi tersimpan: validasi token ke server sebelum buka halaman
+  if (token) {
+    try {
+      const res = await fetch('/api/me', { headers: { 'x-dj-token': token } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error('hangus');
+      user = { username: data.username, nama: data.nama, peran: data.peran };
+      deviceId = user.username;
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      showApp();
+    } catch {
+      hanguskanSesi(false);
+    }
+  } else {
+    showLogin();
+  }
+  muatAdzanTamu();
+  setInterval(cekAdzanTamu, 30000);
 }
 
 boot();

@@ -1,0 +1,9 @@
+# File yang TIDAK boleh ikut terunggah ke Vercel
+data/state.json
+data/secret.txt
+audio/
+node_modules/
+.vercel/
+*.log
+sqlite_mcp_server.db
+extension/

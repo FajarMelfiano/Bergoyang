@@ -137,7 +137,7 @@ async function simpanState(state) {
   if (!Array.isArray(state.users)) state.users = [];
 
   for (const u of daftar) {
-    const peran = adminSet.has(u.username) ? 'admin' : 'operator';
+    const peran = adminSet.has(u.username) ? 'admin' : 'user';
     const i = state.users.findIndex((x) => x.username === u.username);
     const baru = buatUser(u.username, u.nama, u.password, peran);
     if (i >= 0) state.users[i] = baru;

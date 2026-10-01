@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/app" }
+  ],
+  "functions": {
+    "api/app.js": {
+      "includeFiles": "{public,data}/**",
+      "maxDuration": 60
+    }
+  }
+}

@@ -1,0 +1,16 @@
+.vercel
+.env*
+node_modules
+
+# data sensitif & data acara — jangan masuk repo
+data/secret.txt
+data/state.json
+sqlite_mcp_server.db
+
+# file audio (hak cipta) — tidak masuk repo
+audio/
+
+# artefak tooling & log
+.agents/
+skills-lock.json
+*.log

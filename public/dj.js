@@ -10,7 +10,7 @@ try {
   user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null');
 } catch { user = null; }
 
-/** admin boleh kelola; operator hanya lihat + putar. */
+/** admin boleh kelola; user biasa hanya request via halaman tamu. */
 function bisaKelola() {
   return Boolean(user && user.peran === 'admin');
 }
@@ -161,14 +161,26 @@ function setupLogin() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Gagal masuk.');
+      if (data.peran !== 'admin') {
+        // panel DJ sekarang admin-only: user biasa tidak boleh masuk ke sini
+        token = '';
+        sessionStorage.removeItem(TOKEN_KEY);
+        note.dataset.tone = 'error';
+        note.textContent = `Kamu masuk sebagai ${data.nama}, tapi panel DJ hanya untuk admin. Request lagu lewat halaman tamu ya.`;
+        $('toGuestBtn').hidden = false;
+        $('loginPass').value = '';
+        return;
+      }
       token = data.token;
       user = { username: data.username, nama: data.nama, peran: data.peran };
       sessionStorage.setItem(TOKEN_KEY, token);
       sessionStorage.setItem(USER_KEY, JSON.stringify(user));
       note.textContent = '';
+      $('toGuestBtn').hidden = true;
       $('loginUser').value = '';
       $('loginPass').value = '';
       showApp();
+      muatAdzan();
       // tidak auto-klaim: DJ memilih sendiri device mana yang jadi pemutar
       // utama lewat tombol "Jadikan ini pemutar utama" (atau "Ambil kendali").
       toast(`Masuk sebagai ${user.nama}. Tekan "Jadikan ini pemutar utama" di device yang akan memutar lagu.`);
@@ -370,6 +382,10 @@ function startPlayback(track) {
 
 async function advance() {
   if (advancing) return;
+  if (adzan.aktif) {
+    toast('Sedang adzan — pemutaran lanjut otomatis setelah adzan selesai.');
+    return;
+  }
   advancing = true;
   try {
     const result = await api('/api/dj/advance', 'POST', {});
@@ -538,6 +554,10 @@ function rowActions(track) {
   const add = (label, cls, fn) => actions.append(el('button', { class: `btn ${cls} btn--sm`, type: 'button', text: label, onclick: fn }));
 
   const run = async (action, okMessage) => {
+    if (action === 'play' && adzan.aktif) {
+      toast('Sedang adzan — pemutaran lanjut otomatis setelah adzan selesai.');
+      return;
+    }
     try {
       await trackAction(track.id, action);
       if (okMessage) toast(okMessage);
@@ -702,7 +722,7 @@ function render() {
 
   $('emptyQueue').hidden = pending.length + queued.length + (playing ? 1 : 0) > 0;
 
-  // toggle pengaturan hanya dirender untuk admin (operator hanya lihat+putar)
+  // toggle pengaturan hanya dirender untuk admin (panel DJ admin-only)
   const toggles = $('toggles');
   if (bisaKelola()) {
     toggles.replaceChildren(
@@ -728,6 +748,7 @@ function render() {
 let autoPlayTerakhir = 0;
 async function mungkinPutarOtomatis() {
   if (!token || !state || advancing) return;
+  if (adzan.aktif) return; // hormati jeda adzan, jangan auto-play sekarang
   if (Date.now() - autoPlayTerakhir < 3000) return;
   const playing = state.tracks.find((t) => t.status === 'playing');
   if (playing) return;
@@ -890,6 +911,249 @@ function setupPassword() {
   });
 }
 
+/* --------------------------------------------------- adzan otomatis */
+
+const ADZAN_NAMA = { Fajr: 'Subuh', Dhuhr: 'Dzuhur', Asr: 'Ashar', Maghrib: 'Maghrib', Isha: 'Isya' };
+let adzan = {
+  jadwal: null,      // { Fajr: '04:35', ... } dalam waktu lokal lokasi
+  durasi: 10,        // menit jeda otomatis
+  enabled: true,
+  aktif: false,      // sedang dalam jeda adzan sekarang
+  diputarSebelum: null, // lagu sedang berjalan saat adzan masuk?
+};
+
+function tanggalLocal() {
+  const p = (n) => String(n).padStart(2, '0');
+  const d = new Date();
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+}
+
+async function muatAdzan() {
+  try {
+    const res = await fetch(`/api/adzan?tanggal=${encodeURIComponent(tanggalLocal())}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Gagal memuat jadwal adzan.');
+    adzan.jadwal = data.jadwal || null;
+    adzan.durasi = Number(data.durasi) || 10;
+    adzan.enabled = data.enabled !== false;
+    adzan.tanggal = tanggalLocal();
+  } catch { /* belum disetel atau offline — diam saja */ }
+  renderAdzanSetting();
+  cekAdzan();
+}
+
+/** Apakah sekarang sedang dalam jeda adzan (menit-menit setelah jadwal masuk). */
+function statusAdzan() {
+  if (!adzan.enabled || !adzan.jadwal) return { aktif: false };
+  const sekarang = new Date();
+  const menit = sekarang.getHours() * 60 + sekarang.getMinutes();
+  for (const [key, jam] of Object.entries(adzan.jadwal)) {
+    const bagian = String(jam).split(':').map(Number);
+    if (bagian.length < 2 || bagian.some((n) => !Number.isFinite(n))) continue;
+    const mulai = bagian[0] * 60 + bagian[1];
+    const selesai = mulai + adzan.durasi;
+    if (menit >= mulai && menit < selesai) {
+      return { aktif: true, nama: ADZAN_NAMA[key] || key, selesai };
+    }
+  }
+  return { aktif: false };
+}
+
+function cekAdzan() {
+  const s = statusAdzan();
+  if (s.aktif && !adzan.aktif) mulaiAdzan(s);
+  else if (!s.aktif && adzan.aktif) selesaiAdzan();
+  renderAdzanBanner(s);
+}
+
+/** Detak adzan: cek ulang setiap 20 detik, dan ambil jadwal baru kalau tanggal sudah ganti. */
+function detakAdzan() {
+  if (adzan.tanggal && adzan.tanggal !== tanggalLocal()) {
+    muatAdzan();
+    return;
+  }
+  cekAdzan();
+}
+
+/** Adzan masuk: jeda semua pemutar di device ini (hanya pemutar utama yang bunyi). */
+function mulaiAdzan(s) {
+  adzan.aktif = true;
+  const audio = $('audioEl');
+  adzan.diputarSebelum = false;
+  if (ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+    try { if (ytPlayer.getPlayerState() === 1 /* PLAYING */) adzan.diputarSebelum = true; } catch { /* abaikan */ }
+  }
+  if (audio && audio.src && !audio.paused) adzan.diputarSebelum = true;
+  if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
+    try { ytPlayer.pauseVideo(); } catch { /* abaikan */ }
+  }
+  if (audio && !audio.paused) audio.pause();
+  toast(`Adzan ${s.nama} — pemutaran dijeda, lanjut otomatis setelah selesai.`);
+}
+
+/** Adzan selesai: lanjutkan lagu yang tertahan tadi. */
+function selesaiAdzan() {
+  adzan.aktif = false;
+  if (!adzan.diputarSebelum) return;
+  adzan.diputarSebelum = false;
+  if (ytPlayer && typeof ytPlayer.playVideo === 'function') {
+    try { ytPlayer.playVideo(); } catch { /* abaikan */ }
+  }
+  const audio = $('audioEl');
+  if (audio && audio.paused && audio.src) audio.play().catch(() => { /* abaikan */ });
+  toast('Adzan selesai — pemutaran dilanjutkan.');
+}
+
+function renderAdzanBanner(s) {
+  const banner = $('adzanBanner');
+  if (!banner) return;
+  if (!s.aktif) { banner.hidden = true; return; }
+  const sisa = Math.max(0, s.selesai - (new Date().getHours() * 60 + new Date().getMinutes()));
+  banner.hidden = false;
+  $('adzanBannerText').textContent = `Sedang adzan ${s.nama} — pemutaran dijeda otomatis (±${sisa} menit lagi).`;
+}
+
+/** Tampilan jadwal + pengaturan adzan di Pengaturan acara (admin). */
+function renderAdzanSetting() {
+  const box = $('adzanJadwal');
+  const enabled = $('adzanEnabled');
+  const durasi = $('adzanDurasi');
+  if (enabled) enabled.checked = adzan.enabled;
+  if (durasi) durasi.value = adzan.durasi;
+  if (!box) return;
+  if (!adzan.jadwal) {
+    box.replaceChildren(el('p', { class: 'hint', text: 'Jadwal belum diatur. Tekan "Atur dari lokasi saya" (butuh izin lokasi browser).' }));
+    return;
+  }
+  box.replaceChildren(
+    el('p', { class: 'adzan-jadwal__title', text: 'Jadwal hari ini' }),
+    ...Object.entries(adzan.jadwal).map(([key, jam]) => el('div', { class: 'adzan-jadwal__row' }, [
+      el('span', { text: ADZAN_NAMA[key] || key }),
+      el('b', { text: jam }),
+    ])),
+  );
+}
+
+function setupAdzan() {
+  $('adzanLokasiBtn').addEventListener('click', async () => {
+    const note = $('adzanNote');
+    note.dataset.tone = '';
+    note.textContent = 'Mengambil lokasi…';
+    if (!('geolocation' in navigator)) {
+      note.dataset.tone = 'error';
+      note.textContent = 'Browser tidak mendukung deteksi lokasi.';
+      return;
+    }
+    let pos;
+    try {
+      pos = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000, enableHighAccuracy: false });
+      });
+    } catch (err) {
+      note.dataset.tone = 'error';
+      note.textContent = (err && err.message) || 'Izin lokasi ditolak.';
+      return;
+    }
+    note.textContent = 'Mengambil jadwal adzan…';
+    try {
+      const res = await fetch('/api/adzan/lokasi', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dj-token': token },
+        body: JSON.stringify({
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+          tanggal: tanggalLocal(),
+          durasi: Number($('adzanDurasi').value) || adzan.durasi,
+          enabled: $('adzanEnabled').checked,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Gagal mengatur jadwal adzan.');
+      adzan.jadwal = data.jadwal;
+      adzan.durasi = data.durasi;
+      adzan.enabled = data.enabled;
+      note.dataset.tone = 'ok';
+      note.textContent = 'Jadwal adzan diatur dari lokasi kamu.';
+      renderAdzanSetting();
+      cekAdzan();
+    } catch (err) {
+      note.dataset.tone = 'error';
+      note.textContent = err.message;
+    }
+  });
+
+  $('adzanEnabled').addEventListener('change', async (e) => {
+    try {
+      const res = await fetch('/api/adzan/pengaturan', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dj-token': token },
+        body: JSON.stringify({ enabled: e.target.checked }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan.');
+      adzan.enabled = data.enabled;
+      cekAdzan();
+    } catch (err) {
+      e.target.checked = adzan.enabled;
+      toast(err.message, 'error');
+    }
+  });
+
+  $('adzanDurasi').addEventListener('change', async (e) => {
+    const d = Math.min(Math.max(Number(e.target.value) || 10, 1), 60);
+    e.target.value = d;
+    try {
+      const res = await fetch('/api/adzan/pengaturan', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dj-token': token },
+        body: JSON.stringify({ durasi: d }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Gagal menyimpan.');
+      adzan.durasi = data.durasi;
+      cekAdzan();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
+/* --------------------------------------------------- keybind spacebar */
+
+function togglePlayPause() {
+  const audio = $('audioEl');
+  if (audio && audio.src) {
+    if (audio.paused) audio.play().catch(() => { /* abaikan */ });
+    else audio.pause();
+    return;
+  }
+  if (!ytPlayer || typeof ytPlayer.getPlayerState !== 'function') {
+    toast('Belum ada lagu yang dimuat. Tekan "Putar berikutnya" dulu.');
+    return;
+  }
+  if (ytPlayer.getPlayerState() === 1 /* PLAYING */) ytPlayer.pauseVideo();
+  else ytPlayer.playVideo();
+}
+
+function setupSpacebar() {
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' && e.key !== ' ') return;
+    const tag = ((e.target && e.target.tagName) || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select' || tag === 'button') return;
+    if (e.target && e.target.isContentEditable) return;
+    e.preventDefault();
+    if (!kitaPegang()) {
+      toast('Jadikan device ini pemutar utama dulu sebelum mengatur lagu.', 'error');
+      return;
+    }
+    if (adzan.aktif) {
+      toast('Sedang adzan — pemutaran lanjut otomatis setelah adzan selesai.');
+      return;
+    }
+    togglePlayPause();
+  });
+}
+
 /* ---------------------------------------------------------------- boot */
 
 async function boot() {
@@ -898,7 +1162,10 @@ async function boot() {
   setupSettings();
   setupPassword();
   setupUserMenu();
+  setupAdzan();
+  setupSpacebar();
   setInterval(detakPemutar, 5000);
+  setInterval(detakAdzan, 20000);
   connect();
   try {
     const res = await fetch('/api/state');
@@ -908,11 +1175,29 @@ async function boot() {
   }
   if (token && state) {
     try {
-      // validasi token dengan permintaan ringan
-      await api('/api/audio-files', 'POST', {});
+      // validasi token + peran lewat /api/me (panel DJ sekarang admin-only)
+      const resMe = await fetch('/api/me', { headers: { 'x-dj-token': token } });
+      const dataMe = await resMe.json().catch(() => ({}));
+      if (!resMe.ok) throw new Error('token tidak valid');
+      if (dataMe.peran !== 'admin') {
+        token = '';
+        sessionStorage.removeItem(TOKEN_KEY);
+        const note = $('loginNote');
+        note.dataset.tone = 'error';
+        note.textContent = `Kamu masuk sebagai ${dataMe.nama || 'user'}, tapi panel DJ hanya untuk admin. Request lagu lewat halaman tamu ya.`;
+        $('toGuestBtn').hidden = false;
+        return;
+      }
+      user = { username: dataMe.username, nama: dataMe.nama, peran: dataMe.peran };
+      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
       showApp();
       render();
-    } catch { /* logout sudah dipanggil di api() */ }
+      muatAdzan();
+    } catch {
+      // token hangus — biarkan layar login tampil
+      token = '';
+      sessionStorage.removeItem(TOKEN_KEY);
+    }
   } else if (state) {
     render();
   }

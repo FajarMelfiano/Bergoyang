@@ -1,0 +1,15 @@
+{
+  "name": "requestlagu",
+  "version": "1.0.0",
+  "description": "Request lagu live untuk acara/DJ: halaman tamu request real-time + panel DJ pemutar terpusat.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node scripts/seed_users.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "private": true
+}

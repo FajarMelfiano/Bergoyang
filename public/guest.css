@@ -1,0 +1,117 @@
+/* Gaya khusus halaman tamu: gerbang login, menu user, strip adzan.
+   Dipasang setelah styles.css; tidak mengubah aturan styles.css yang sudah ada. */
+
+/* sembunyikan isi halaman sebelum login (body[data-auth="false"]) */
+body[data-auth="false"] .hero,
+body[data-auth="false"] .layout,
+body[data-auth="false"] .footer { display: none; }
+body[data-auth="true"] .gate { display: none; }
+
+.gate {
+  max-width: 520px;
+  margin: 34px auto 60px;
+  padding: 4px 14px 0;
+}
+
+/* ---------- menu user di topbar */
+.guser { position: relative; }
+.guser__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid rgba(27, 22, 16, 0.25);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #1b1610;
+  font-family: var(--font-ui, inherit);
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+.guser__trigger::-webkit-details-marker { display: none; }
+.guser__trigger:hover { border-color: var(--amber); color: #8a5a00; }
+.guser__caret { flex: none; }
+.guser__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 268px;
+  padding: 14px;
+  background: #fffdf8;
+  color: #1b1610;
+  border: 1px solid rgba(27, 22, 16, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 18px 40px rgba(27, 22, 16, 0.22);
+  z-index: 40;
+}
+.guser__title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(27, 22, 16, 0.6);
+  margin-bottom: 10px;
+}
+.guser .field { margin-bottom: 10px; }
+.guser .field label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(27, 22, 16, 0.7);
+  margin-bottom: 4px;
+}
+.guser .field input {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid rgba(27, 22, 16, 0.24);
+  border-radius: 6px;
+  background: #fff;
+  color: #1b1610;
+  font-size: 0.92rem;
+}
+.guser .field input:focus {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+  border-color: var(--amber);
+}
+.guser__sep {
+  height: 1px;
+  background: rgba(27, 22, 16, 0.12);
+  margin: 12px 0;
+}
+.guser .form-note { font-size: 0.8rem; color: rgba(27, 22, 16, 0.6); }
+.guser .form-note[data-tone="ok"] { color: #0f7a4d; }
+.guser .form-note[data-tone="error"] { color: #b3261e; }
+
+/* ---------- strip adzan */
+.adzan-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 7px 14px;
+  background: rgba(246, 166, 35, 0.16);
+  border: 1px solid rgba(246, 166, 35, 0.6);
+  border-radius: 999px;
+  color: #8a5a00;
+  font-family: var(--font-ui, inherit);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+.adzan-strip__dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 10px rgba(246, 166, 35, 0.9);
+  flex: none;
+  animation: adzan-strip-pulse 2.4s ease-in-out infinite;
+}
+@keyframes adzan-strip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (max-width: 560px) {
+  .guser__panel { position: fixed; right: 12px; left: 12px; width: auto; }
+}

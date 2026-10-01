@@ -457,6 +457,88 @@
 .console .settings-grid { gap: 14px; margin-top: 14px; }
 .console .settings-grid .field--action { grid-column: 1 / -1; }
 .console .settings__toggles { margin-top: 4px; }
+
+/* ---- adzan otomatis */
+.adzan-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, rgba(246, 166, 35, 0.18), rgba(246, 166, 35, 0.06));
+  border: 1px solid rgba(246, 166, 35, 0.55);
+  border-radius: 6px;
+  color: var(--amber);
+  font-family: var(--font-ui);
+  font-size: 0.94rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  margin-bottom: 12px;
+  animation: adzan-pulse 2.4s ease-in-out infinite;
+}
+.adzan-banner__dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 12px var(--amber);
+  flex: none;
+}
+@keyframes adzan-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+.settings__adzan {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+.settings__adzan-title {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  color: var(--amber);
+  margin-bottom: 4px;
+}
+.settings__adzan .hint {
+  margin: 0 0 12px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+.settings__adzan-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.settings__adzan-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.86rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.settings__adzan-toggle input { width: 17px; height: 17px; accent-color: var(--amber); }
+.field--sm { max-width: 180px; }
+.adzan-jadwal { margin-top: 10px; }
+.adzan-jadwal__title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.adzan-jadwal__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  font-size: 0.88rem;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+.adzan-jadwal__row + .adzan-jadwal__row { margin-top: 4px; }
+.adzan-jadwal .hint { margin: 0; font-size: 0.82rem; }
 /* tombol & saklar diperbesar: dipakai sambil berdiri di ruang gelap */
 .console .btn--sm { min-height: 42px; }
 .console .switch { width: 60px; height: 34px; }

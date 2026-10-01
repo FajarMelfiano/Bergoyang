@@ -63,6 +63,12 @@ function normalizeState(parsed) {
   if (typeof parsed.autoNext !== 'boolean') parsed.autoNext = true;
   // daftar user panel (hanya hash+salt, tidak pernah password polos)
   parsed.users = Array.isArray(parsed.users) ? parsed.users : [];
+  for (const u of parsed.users) if (u.peran === 'operator') u.peran = 'user'; // migrasi nama peran lama
+  // pengaturan adzan otomatis (pemutar dijeda saat adzan)
+  if (!parsed.adzan || typeof parsed.adzan !== 'object') parsed.adzan = {};
+  if (typeof parsed.adzan.enabled !== 'boolean') parsed.adzan.enabled = true;
+  if (!Number.isFinite(parsed.adzan.durasi)) parsed.adzan.durasi = 10;
+  if (parsed.adzan.jadwal && typeof parsed.adzan.jadwal !== 'object') delete parsed.adzan.jadwal;
   return parsed;
 }
 
@@ -247,13 +253,14 @@ function readBody(req, limit = 64 * 1024) {
 /**
  * Kredensial user: { username, nama, peran, salt, hash }.
  * Password tidak pernah disimpan polos — hanya hash scrypt + salt per user.
- * Peran: 'operator' (lihat + putar) atau 'admin' (kelola antrean & pengaturan).
+ * Peran: 'user' (request + vote + ganti password sendiri, via halaman tamu)
+ * atau 'admin' (memutar & mengelola antrean di panel DJ).
  */
 function hashPassword(password, salt) {
   return crypto.scryptSync(String(password), salt, 64).toString('hex');
 }
 
-function buatUser(username, nama, password, peran = 'operator') {
+function buatUser(username, nama, password, peran = 'user') {
   const salt = crypto.randomBytes(16).toString('hex');
   return { username, nama, peran, salt, hash: hashPassword(password, salt) };
 }
@@ -296,11 +303,21 @@ function djSesi(req) {
   try {
     if (!crypto.timingSafeEqual(Buffer.from(mac, 'hex'), Buffer.from(want, 'hex'))) return null;
   } catch { return null; }
-  return { username: u.username, peran: u.peran || 'operator' };
+  return { username: u.username, peran: u.peran || 'user' };
 }
 
 function isDj(req) {
   return Boolean(djSesi(req));
+}
+
+/** Sesi admin saja — dipakai endpoint pemutar & adzan (panel DJ sekarang admin-only). */
+function adminSesi(req) {
+  const sesi = djSesi(req);
+  return sesi && sesi.peran === 'admin' ? sesi : null;
+}
+
+function isAdmin(req) {
+  return Boolean(adminSesi(req));
 }
 
 function clean(str, max) {
@@ -535,6 +552,47 @@ async function youtubeSearch(q) {
   return many[0];
 }
 
+/* --------------------------------------------------------------- adzan otomatis */
+
+const ADZAN_WAKTU = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+
+/** Tanggal lokal server sebagai 'DD-MM-YYYY' (fallback bila klien tak mengirim). */
+function tanggalLocal(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+}
+
+/** Validasi format tanggal 'DD-MM-YYYY'. */
+function cekTanggal(t) {
+  return /^[0-3]\d-[01]\d-\d{4}$/.test(String(t || '')) ? String(t) : null;
+}
+
+/**
+ * Ambil jadwal adzan dari aladhan.com untuk tanggal & koordinat tertentu.
+ * method=20 = Kemenag (Indonesia). Hasil hanya "HH:MM" lokal di lokasi tsb.
+ */
+async function ambilJadwalAdzan(latitude, longitude, tanggal) {
+  const u = `https://api.aladhan.com/v1/timings/${encodeURIComponent(tanggal)}`
+    + `?latitude=${latitude}&longitude=${longitude}&method=20`;
+  const res = await fetch(u, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`aladhan HTTP ${res.status}`);
+  const data = await res.json();
+  const t = (data && data.data && data.data.timings) || {};
+  const jadwal = {};
+  for (const nama of ADZAN_WAKTU) if (t[nama]) jadwal[nama] = String(t[nama]).slice(0, 5);
+  if (!Object.keys(jadwal).length) throw new Error('Jadwal adzan kosong');
+  return jadwal;
+}
+
+/** Simpan jadwal satu tanggal (cache ringan, maks 3 tanggal terakhir). */
+function simpanJadwalAdzan(tanggal, jadwal) {
+  if (!state.adzan) state.adzan = { enabled: true, durasi: 10 };
+  const semua = { ...(state.adzan.jadwal || {}), [tanggal]: jadwal };
+  const keys = Object.keys(semua).sort().reverse().slice(0, 3);
+  state.adzan.jadwal = {};
+  for (const k of keys) state.adzan.jadwal[k] = semua[k];
+}
+
 /* --------------------------------------------------------------- routing */
 
 async function handleApi(req, res, url) {
@@ -609,7 +667,19 @@ async function handleApi(req, res, url) {
       token: buatToken(u),
       username: u.username,
       nama: u.nama || u.username,
-      peran: u.peran || 'operator',
+      peran: u.peran || 'user',
+    });
+  }
+
+  /* --- info sesi sendiri (validasi token di halaman tamu & panel) --- */
+  if (method === 'GET' && p === '/api/me') {
+    const sesi = djSesi(req);
+    if (!sesi) return sendJson(res, 401, { error: 'Belum masuk.' });
+    const u = state.users.find((x) => x.username === sesi.username);
+    return sendJson(res, 200, {
+      username: sesi.username,
+      nama: (u && u.nama) || sesi.username,
+      peran: sesi.peran,
     });
   }
 
@@ -617,8 +687,10 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     if (!state.event.open) return sendJson(res, 403, { error: 'Request sedang ditutup oleh DJ.' });
 
-    const deviceId = clean(body.deviceId, 64);
-    if (!/^[\w-]{6,64}$/.test(deviceId)) return sendJson(res, 400, { error: 'Perangkat tidak dikenali, muat ulang halaman.' });
+    // Halaman tamu sekarang privat: hanya user terdaftar yang boleh request.
+    const sesi = djSesi(req);
+    if (!sesi) return sendJson(res, 401, { error: 'Kamu harus masuk dulu untuk request lagu.' });
+    const deviceId = sesi.username; // identitas request = username yang login
 
     // Antrean TIDAK dibatasi jumlahnya: siapa pun boleh request sesuka hati,
     // vote yang menentukan urutan. Yang dibatasi hanya kecepatan kirim
@@ -669,9 +741,10 @@ async function handleApi(req, res, url) {
   if (method === 'POST' && p === '/api/vote') {
     const body = await readBody(req);
     if (!state.event.allowVotes) return sendJson(res, 403, { error: 'Voting sedang dimatikan.' });
-    const deviceId = clean(body.deviceId, 64);
+    const sesi = djSesi(req);
+    if (!sesi) return sendJson(res, 401, { error: 'Kamu harus masuk dulu untuk vote.' });
+    const deviceId = sesi.username;
     const track = findTrack(clean(body.trackId, 64));
-    if (!/^[\w-]{6,64}$/.test(deviceId)) return sendJson(res, 400, { error: 'Perangkat tidak dikenali.' });
     if (!track) return sendJson(res, 404, { error: 'Lagu tidak ditemukan.' });
     if (track.status !== 'queued') return sendJson(res, 409, { error: 'Hanya lagu di antrean yang bisa divoting.' });
     mutate(() => {
@@ -683,7 +756,7 @@ async function handleApi(req, res, url) {
 
   /* --- status pemutar (diisi panel DJ yang sedang memegang kendali) --- */
   if (method === 'POST' && p === '/api/player/status') {
-    if (!isDj(req)) return sendJson(res, 401, { error: 'Token DJ tidak valid.' });
+    if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
     const body = await readBody(req);
     mutate(() => {
       const panel = clean(body.panel, 40);
@@ -703,7 +776,7 @@ async function handleApi(req, res, url) {
    * Hanya satu panel DJ yang boleh memutar. Panel lain yang masih aktif
    * (detak < 12 detik) menang atas klaim baru, kecuali klaim dipaksa.       */
   if (method === 'POST' && p === '/api/player/claim') {
-    if (!isDj(req)) return sendJson(res, 401, { error: 'Token DJ tidak valid.' });
+    if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
     const body = await readBody(req);
     const panel = clean(body.panel, 40);
     const pemegang = state.player && state.player.panel;
@@ -725,7 +798,7 @@ async function handleApi(req, res, url) {
 
   /* --- lepaskan kepemilikan pemutar (saat DJ keluar dari panel) --- */
   if (method === 'POST' && p === '/api/player/release') {
-    if (!isDj(req)) return sendJson(res, 401, { error: 'Token DJ tidak valid.' });
+    if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
     const body = await readBody(req);
     const panel = clean(body.panel, 40);
     mutate(() => {
@@ -736,26 +809,91 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true });
   }
 
+  /* --- adzan otomatis (pemutar dijeda saat adzan) --- */
+  if (p === '/api/adzan') {
+    if (method !== 'GET') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
+    const a = state.adzan;
+    const tanggal = cekTanggal(clean(url.searchParams.get('tanggal'), 20)) || tanggalLocal();
+    if (!a || !a.lat) return sendJson(res, 200, { jadwal: null, durasi: 10, enabled: true });
+    if (!a.jadwal || !a.jadwal[tanggal]) {
+      try {
+        const jadwal = await ambilJadwalAdzan(a.lat, a.lng, tanggal);
+        mutate(() => simpanJadwalAdzan(tanggal, jadwal));
+      } catch {
+        return sendJson(res, 200, {
+          jadwal: (a.jadwal && Object.values(a.jadwal)[0]) || null,
+          durasi: a.durasi,
+          enabled: a.enabled,
+          error: 'Gagal mengambil jadwal adzan. Coba lagi nanti.',
+        });
+      }
+    }
+    return sendJson(res, 200, {
+      jadwal: (state.adzan.jadwal && state.adzan.jadwal[tanggal]) || null,
+      durasi: a.durasi,
+      enabled: a.enabled,
+    });
+  }
+
+  if (p === '/api/adzan/lokasi') {
+    if (method !== 'POST') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
+    const sesi = adminSesi(req);
+    if (!sesi) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+    const body = await readBody(req);
+    const lat = Number(body.latitude);
+    const lng = Number(body.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)
+        || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return sendJson(res, 400, { error: 'Koordinat lokasi tidak valid.' });
+    }
+    const tanggal = cekTanggal(clean(body.tanggal, 20)) || tanggalLocal();
+    let jadwal;
+    try {
+      jadwal = await ambilJadwalAdzan(lat, lng, tanggal);
+    } catch {
+      return sendJson(res, 502, { error: 'Gagal mengambil jadwal adzan. Periksa internet panel.' });
+    }
+    const durasi = Math.min(Math.max(Number(body.durasi) || (state.adzan && state.adzan.durasi) || 10, 1), 60);
+    mutate(() => {
+      if (!state.adzan) state.adzan = { enabled: true, durasi };
+      state.adzan.lat = lat;
+      state.adzan.lng = lng;
+      state.adzan.durasi = durasi;
+      if (body.enabled !== undefined) state.adzan.enabled = Boolean(body.enabled);
+      simpanJadwalAdzan(tanggal, jadwal);
+    });
+    return sendJson(res, 200, { jadwal, lat, lng, durasi: state.adzan.durasi, enabled: state.adzan.enabled });
+  }
+
+  if (p === '/api/adzan/pengaturan') {
+    if (method !== 'POST') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
+    const sesi = adminSesi(req);
+    if (!sesi) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+    const body = await readBody(req);
+    mutate(() => {
+      if (!state.adzan) state.adzan = { enabled: true, durasi: 10 };
+      if (body.durasi !== undefined && body.durasi !== null && body.durasi !== '') {
+        const d = Number(body.durasi);
+        if (Number.isFinite(d)) state.adzan.durasi = Math.min(Math.max(d, 1), 60);
+      }
+      if (body.enabled !== undefined) state.adzan.enabled = Boolean(body.enabled);
+    });
+    return sendJson(res, 200, { ok: true, durasi: state.adzan.durasi, enabled: state.adzan.enabled });
+  }
+
   /* --- khusus DJ --- */
   if (p.startsWith('/api/dj') || p === '/api/event') {
     const sesi = djSesi(req);
     if (!sesi) return sendJson(res, 401, { error: 'Token DJ tidak valid. Masuk ulang.' });
     if (method !== 'POST' && method !== 'PATCH') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
     const body = await readBody(req);
-    const kelola = sesi.peran === 'admin'; // admin boleh kelola; operator hanya lihat+putar
+    const kelola = sesi.peran === 'admin'; // admin memutar & mengelola; user hanya via halaman tamu
 
     if (!kelola) {
-      // operator: cuma boleh memutar & mengganti password sendiri
-      const trackMatch0 = p.match(/^\/api\/dj\/track\/([\w-]+)$/);
-      const aksi = trackMatch0 ? clean(body.action, 24) : null;
-      const boleh = p === '/api/dj/advance'
-        || p === '/api/dj/auto'
-        || p === '/api/dj/password'
-        || aksi === 'play'
-        || aksi === 'done';
-      if (!boleh) {
+      // user biasa: tidak ada akses panel — hanya ganti password sendiri
+      if (p !== '/api/dj/password') {
         return sendJson(res, 403, {
-          error: 'Akun kamu hanya bisa melihat antrean dan memutar lagu.',
+          error: 'Panel DJ hanya untuk admin. Kamu bisa request lewat halaman tamu.',
         });
       }
     }
@@ -965,12 +1103,12 @@ async function serve(req, res) {
     }
 
     if (url.pathname === '/api/audio-files') {
-      if (!isDj(req)) return sendJson(res, 401, { error: 'Token DJ tidak valid.' });
+      if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
       return sendJson(res, 200, { files: audioFiles() });
     }
 
     if (url.pathname === '/api/yt-search') {
-      if (!isDj(req)) return sendJson(res, 401, { error: 'Token DJ tidak valid.' });
+      if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
       const q = clean(url.searchParams.get('q'), 160);
       if (!q) return sendJson(res, 400, { error: 'Kata kunci kosong.' });
       try {

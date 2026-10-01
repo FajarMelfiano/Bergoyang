@@ -66,7 +66,7 @@
 
       <div class="ticket__body">
         <h1 class="ticket__title">Panel DJ</h1>
-        <p class="ticket__lead">Masuk dengan akunmu untuk melihat antrean dan memutar lagu.</p>
+        <p class="ticket__lead">Hanya admin yang bisa mengelola panel DJ. Masuk dengan akun admin.</p>
 
         <div class="field">
           <label for="loginUser">Username</label>
@@ -88,12 +88,18 @@
         <span class="ticket__notch ticket__notch--right"></span>
       </div>
 
-      <p class="ticket__foot">Akses dibagikan panitia. Password bisa diganti sendiri setelah masuk.</p>
+      <p class="ticket__foot">Panel DJ hanya untuk admin. Panitia lain request lewat halaman tamu.</p>
+      <a class="btn btn--ghost btn--block" id="toGuestBtn" href="/" hidden>Kembali ke halaman tamu</a>
     </form>
   </div>
 
   <!-- PANEL -->
   <main class="console" id="appView" hidden>
+    <div class="adzan-banner" id="adzanBanner" role="status" hidden>
+      <span class="adzan-banner__dot" aria-hidden="true"></span>
+      <span id="adzanBannerText">Sedang adzan — pemutaran dijeda otomatis</span>
+    </div>
+
     <div class="console__deck">
       <!-- konsol pemutar -->
       <section class="deck" aria-labelledby="nowLabel">
@@ -169,6 +175,22 @@
           </div>
         </div>
         <div id="toggles" class="settings__toggles"></div>
+        <div class="settings__adzan">
+          <p class="settings__adzan-title">Adzan otomatis</p>
+          <p class="hint">Pemutar utama jeda sendiri saat adzan masuk, dan lanjut otomatis setelah selesai.</p>
+          <div class="settings__adzan-row">
+            <button class="btn btn--ghost btn--sm" id="adzanLokasiBtn" type="button">Atur dari lokasi saya</button>
+            <label class="settings__adzan-toggle">
+              <input type="checkbox" id="adzanEnabled" /> Aktifkan jeda adzan
+            </label>
+          </div>
+          <div class="field field--sm">
+            <label for="adzanDurasi">Lama jeda adzan (menit)</label>
+            <input id="adzanDurasi" type="number" min="1" max="60" step="1" value="10" />
+          </div>
+          <div class="adzan-jadwal" id="adzanJadwal"></div>
+          <p class="form-note" id="adzanNote" role="alert"></p>
+        </div>
         <div class="settings__actions">
           <button class="btn btn--ghost btn--sm" id="clearDone" type="button">Bersihkan riwayat selesai</button>
           <button class="btn btn--danger btn--sm" id="clearAll" type="button">Kosongkan semua antrean</button>
