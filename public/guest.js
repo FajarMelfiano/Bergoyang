@@ -86,13 +86,18 @@ function showLogin() {
   $('guestChip').textContent = '';
 }
 
+/** Isi field "Nama kamu" dengan username akun yang sedang login. */
+function isiNamaPeminta() {
+  if (user && user.username) $('requester').value = user.username;
+}
+
 function showApp() {
   document.body.dataset.auth = 'true';
   $('guestMenu').hidden = false;
   // identitas yang tampil memakai username (bukan nama tampilan) — sama
   // dengan yang dipakai server saat menyimpan siapa peminta lagu
   $('guestChip').textContent = user ? user.username : '';
-  if (user && user.username) $('requester').value = user.username;
+  isiNamaPeminta();
 }
 
 function hanguskanSesi(notify = true) {
@@ -548,6 +553,9 @@ function setupForm() {
           : 'Slip terkirim.';
       toast(`“${payload.title}” masuk antrean.`);
       form.reset();
+      // form.reset() mengembalikan input readonly ke nilai default HTML
+      // (yaitu kosong), jadi isi ulang nama dari username yang login.
+      isiNamaPeminta();
       pickedYt = '';
       $('results').replaceChildren();
       const wrap = $('detect');
