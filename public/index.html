@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Request Lagu Live</title>
+  <meta name="description" content="Kirim request lagu dari HP kamu, DJ akan memutarnya." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand" id="brand">Request Lagu Live</span>
+    <span class="live-badge" id="liveBadge" data-open="true">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span id="liveText">Request dibuka</span>
+    </span>
+    <a class="topbar-link" href="/dj">Panel DJ</a>
+  </header>
+
+  <section class="hero">
+    <h1 id="eventName">Request Lagu Live</h1>
+    <p class="hero-tag" id="eventTagline">Kirim lagu, tunggu giliran, langsung diputar.</p>
+    <div class="hero-stats">
+      <div class="stat"><b id="statQueued">0</b><span>Di antrean</span></div>
+      <div class="stat"><b id="statPlayed">0</b><span>Sudah diputar</span></div>
+      <div class="stat"><b id="statWaiting">0</b><span>Menunggu</span></div>
+    </div>
+  </section>
+
+  <main class="layout" id="main">
+    <!-- FORM REQUEST -->
+    <div class="layout__form">
+      <form class="form-slip" id="requestForm" novalidate>
+        <h2>Slip request</h2>
+        <p class="hint" id="formHint">Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi.</p>
+
+        <div class="field">
+          <label for="title">Judul lagu</label>
+          <input id="title" name="title" type="text" autocomplete="off" maxlength="120"
+                 placeholder="misal: Hati-Hati di Jalan" required
+                 aria-describedby="titleHelp" />
+          <ul class="results" id="results" role="listbox" aria-label="Hasil pencarian lagu"></ul>
+          <div class="detect" id="detect" hidden></div>
+          <p class="sr-only" id="titleHelp">Pilih dari hasil pencarian atau ketik judul sendiri.</p>
+        </div>
+
+        <div class="field">
+          <label for="artist">Artis <span style="font-weight:400;text-transform:none">(opsional)</span></label>
+          <input id="artist" name="artist" type="text" autocomplete="off" maxlength="120" placeholder="misal: Tulus" />
+        </div>
+
+        <div class="field" id="sourceField">
+          <label for="source">Link YouTube <span style="font-weight:400;text-transform:none">(opsional)</span></label>
+          <input id="source" name="source" type="url" inputmode="url" maxlength="300"
+                 placeholder="kosongkan — server cari sumbernya otomatis dari judul" />
+        </div>
+
+        <div class="field">
+          <label for="requester">Nama kamu <span style="font-weight:400;text-transform:none">(opsional)</span></label>
+          <input id="requester" name="requester" type="text" autocomplete="nickname" maxlength="40" placeholder="misal: Dina" />
+        </div>
+
+        <div class="field" id="messageField">
+          <label for="message">Pesan untuk DJ <span style="font-weight:400;text-transform:none">(opsional)</span></label>
+          <textarea id="message" name="message" maxlength="240" placeholder="misal: untuk yang lagi di jalan, jangan lupa makan"></textarea>
+        </div>
+
+        <button class="btn btn--primary" type="submit" id="submitBtn">Kirim ke antrean</button>
+        <p class="form-note" id="formNote" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+
+    <!-- ANTREAN -->
+    <div class="layout__queue">
+      <section class="queue" aria-labelledby="playingTitle">
+        <h2 class="section-title" id="playingTitle">Sedang diputar</h2>
+        <div id="nowPlaying"></div>
+      </section>
+
+      <section class="queue" aria-labelledby="queueTitle" style="margin-top:30px">
+        <h2 class="section-title" id="queueTitle">Antrean <small id="queueCount">0 lagu</small></h2>
+        <p class="hint hint--tight">Urutan mengikuti vote tertinggi — berubah real-time, sama dengan yang diputar di YouTube Music.</p>
+        <div id="queue"></div>
+      </section>
+
+      <details class="done-list" id="doneWrap" hidden>
+        <summary id="doneSummary">Sudah diputar (0)</summary>
+        <div id="doneList" style="margin-top:12px"></div>
+      </details>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <span id="footerName">Request Lagu Live</span>
+    <span>Tersambung: <strong id="connState">memuat…</strong></span>
+  </footer>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/guest.js" defer></script>
+</body>
+</html>

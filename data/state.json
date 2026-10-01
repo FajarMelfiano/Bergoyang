@@ -1,0 +1,560 @@
+{
+  "event": {
+    "name": "Skarisa Bergoyang",
+    "tagline": "Request Lagumu, Nunggu Antrian, Nikmati Lagumu",
+    "open": true,
+    "autoApprove": true,
+    "allowVotes": true,
+    "allowMessages": true,
+    "djCode": "1705"
+  },
+  "tracks": [
+    {
+      "id": "tmunqpfulab0d307c",
+      "deviceId": "devdina001",
+      "title": "Hati-Hati di Jalan",
+      "artist": "Tulus",
+      "requester": "Dina",
+      "message": "buat teman-teman yang lembur, jangan lupa makan malam",
+      "yt": "9II3OGZETo4",
+      "audio": "",
+      "votes": {
+        "devbudi004": 1,
+        "devsari003": 1
+      },
+      "status": "done",
+      "createdAt": 1790750659197,
+      "playedAt": 1790750954544
+    },
+    {
+      "id": "tmunqpfur3541d29c",
+      "deviceId": "devrian002",
+      "title": "Akad",
+      "artist": "Payung Teduh",
+      "requester": "Rian",
+      "message": "",
+      "yt": "",
+      "audio": "",
+      "votes": {
+        "dmunqq4nxqi7o5s2w": 1
+      },
+      "status": "done",
+      "createdAt": 1790750659203,
+      "playedAt": 1790751405414
+    },
+    {
+      "id": "tmunqpfux5f16b1ad",
+      "deviceId": "devsari003",
+      "title": "Bohemian Rhapsody",
+      "artist": "Queen",
+      "requester": "Sari",
+      "message": "nyanyi rame-rame ya!",
+      "yt": "fJ9rUzIMcZQ",
+      "audio": "",
+      "votes": {
+        "devdina001": 1,
+        "dmunqq4nxqi7o5s2w": 1
+      },
+      "status": "done",
+      "createdAt": 1790750659209,
+      "playedAt": 1790756819254
+    },
+    {
+      "id": "tmunqpfv473ff96da",
+      "deviceId": "devbudi004",
+      "title": "Perfect",
+      "artist": "Ed Sheeran",
+      "requester": "Budi",
+      "message": "",
+      "yt": "2Vv-BfVoq4g",
+      "audio": "",
+      "votes": {
+        "dmunqq4nxqi7o5s2w": 1
+      },
+      "status": "done",
+      "createdAt": 1790750659216,
+      "playedAt": 1790758171613
+    },
+    {
+      "id": "tmunqtr2cc10c84b1",
+      "deviceId": "dmunqq4nxqi7o5s2w",
+      "title": "flappy bird",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790750860356,
+      "playedAt": 1790753025912
+    },
+    {
+      "id": "tmunqpfvadc95bdc5",
+      "deviceId": "devtommy005",
+      "title": "Kangen",
+      "artist": "Dewa 19",
+      "requester": "Tommy",
+      "message": "",
+      "yt": "sjjhLDPT5_g",
+      "audio": "",
+      "votes": {
+        "dmunqq4nxqi7o5s2w": 1
+      },
+      "status": "done",
+      "createdAt": 1790750659222,
+      "playedAt": 1790758474807
+    },
+    {
+      "id": "tmunr57997d1c0ebc",
+      "deviceId": "dmunqq4nxqi7o5s2w",
+      "title": "Style",
+      "artist": "Tylor Swift",
+      "requester": "Melpin",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {
+        "dmunqq4nxqi7o5s2w": 1
+      },
+      "status": "done",
+      "createdAt": 1790751394557,
+      "playedAt": 1790758720819
+    },
+    {
+      "id": "tmunv6vrl921c6500",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "style",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790758191441,
+      "playedAt": 1790758966531
+    },
+    {
+      "id": "tmunw84cx36af58be",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Style",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790759928849,
+      "playedAt": 1790760175390
+    },
+    {
+      "id": "tmunwaggg85ff5af2",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Fate  of ophilia",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "ko70cExuzZM",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "done",
+      "createdAt": 1790760037840,
+      "playedAt": 1790760416896
+    },
+    {
+      "id": "tmunwa32obc6db536",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Hati-Hati di Jalan",
+      "artist": "Tulus",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "_N6vSc_mT6I",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "done",
+      "createdAt": 1790760020497,
+      "playedAt": 1790760663069
+    },
+    {
+      "id": "tmunwk4fla0c9751b",
+      "deviceId": "dmunwk3llurk8lvvg",
+      "title": "Hati-Hati di Jalan",
+      "artist": "Tulus",
+      "requester": "Tester Otomatis",
+      "message": "",
+      "yt": "9II3OGZETo4",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790760488817,
+      "playedAt": 1790761519300
+    },
+    {
+      "id": "tmunwk6bz8aaa8317",
+      "deviceId": "dmunwk4ogiybr3pfx",
+      "title": "Bohemian Rhapsody",
+      "artist": "Queen",
+      "requester": "Tester Otomatis",
+      "message": "",
+      "yt": "fJ9rUzIMcZQ",
+      "audio": "",
+      "votes": {},
+      "status": "rejected",
+      "createdAt": 1790760491279,
+      "playedAt": 0
+    },
+    {
+      "id": "tmunwpoaedae2ba24",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "(sic)",
+      "artist": "Slipknot",
+      "requester": "Dontol",
+      "message": "Kontrol",
+      "yt": "m3I3-KTJbtY",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "rejected",
+      "createdAt": 1790760747830,
+      "playedAt": 0
+    },
+    {
+      "id": "tmunwq30e2e674a4e",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "(sic)",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "m3I3-KTJbtY",
+      "audio": "",
+      "votes": {},
+      "status": "rejected",
+      "createdAt": 1790760766910,
+      "playedAt": 0
+    },
+    {
+      "id": "tmunx3muub7d12df2",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "style",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "rejected",
+      "createdAt": 1790761399158,
+      "playedAt": 0
+    },
+    {
+      "id": "tmunxcbom3d024d25",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "style",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790761804582,
+      "playedAt": 1790762667997
+    },
+    {
+      "id": "tmunxv68s604776f2",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "stay",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "kTJczUoc26U",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790762683997,
+      "playedAt": 1790762859381
+    },
+    {
+      "id": "tmunxw40w019eb2ca",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "style",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790762727776,
+      "playedAt": 1790763394669
+    },
+    {
+      "id": "tmunxwhj948e9bad2",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "teh hijau",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "bZEwYquV6Kg",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790762745285,
+      "playedAt": 1790763431121
+    },
+    {
+      "id": "tmunyb2oef6fc4cce",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Teh Hijau",
+      "artist": "Tulus",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "RO75uUZiAw0",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790763425870,
+      "playedAt": 1790763447076
+    },
+    {
+      "id": "tmunyc5g55dc62cc5",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Teh Hijau",
+      "artist": "Tulus",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "RO75uUZiAw0",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790763476117,
+      "playedAt": 1790763529410
+    },
+    {
+      "id": "tmunycy29231e5a86",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Style",
+      "artist": "Taylor Swift",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "done",
+      "createdAt": 1790763513202,
+      "playedAt": 1790763799057
+    },
+    {
+      "id": "tmunytw97a381effa",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "The 1975 - About You (Official)",
+      "artist": "The 1975",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "tGv7CUutzqU",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "done",
+      "createdAt": 1790764304011,
+      "playedAt": 1790764539311
+    },
+    {
+      "id": "tmunyuuwlce79388c",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "TULUS - Teh Hijau (Official Lyric Video)",
+      "artist": "Tulus",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "RO75uUZiAw0",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790764348917,
+      "playedAt": 1790764562831
+    },
+    {
+      "id": "tmunywh772a1f5466",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Taylor Swift - The Fate of Ophelia (Official Music Video)",
+      "artist": "Taylor Swift",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "ko70cExuzZM",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790764424467,
+      "playedAt": 1790764646574
+    },
+    {
+      "id": "tmunyzvfl4525bb8a",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Taylor Swift - Style",
+      "artist": "Taylor Swift",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "done",
+      "createdAt": 1790764582881,
+      "playedAt": 1790764947124
+    },
+    {
+      "id": "tmunzjogpa430a476",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Taylor Swift - Style",
+      "artist": "Taylor Swift",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790765506969,
+      "playedAt": 1790765555580
+    },
+    {
+      "id": "tmunzk30na2546e72",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "TULUS - Teh Hijau (Official Lyric Video)",
+      "artist": "Tulus",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "RO75uUZiAw0",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790765525832,
+      "playedAt": 1790765583871
+    },
+    {
+      "id": "tmunzka7r8322baf4",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Fourtwnty - Mangu (1 jam)",
+      "artist": "WrongGamer",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "fEj7gN-9VE4",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790765535159,
+      "playedAt": 1790766065499
+    },
+    {
+      "id": "tmunzsn8w9cc7badb",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Taylor Swift - Style",
+      "artist": "Taylor Swift",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "done",
+      "createdAt": 1790765925296,
+      "playedAt": 1790766312057
+    },
+    {
+      "id": "tmuo064p5485d9b54",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Taylor Swift - Style",
+      "artist": "Taylor Swift",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790766554441,
+      "playedAt": 1790766800827
+    },
+    {
+      "id": "tmuo0cfgudbfd02be",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Slipknot - (Sic) (Audio)",
+      "artist": "Slipknot",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "m3I3-KTJbtY",
+      "audio": "",
+      "votes": {},
+      "status": "done",
+      "createdAt": 1790766848334,
+      "playedAt": 1790767052952
+    },
+    {
+      "id": "tmuo0ctdq7059b802",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "TULUS - Teh Hijau (Official Lyric Video)",
+      "artist": "Tulus",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "RO75uUZiAw0",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "done",
+      "createdAt": 1790766866366,
+      "playedAt": 1790767315218
+    },
+    {
+      "id": "tmuo2e42x47e02404",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "styke",
+      "artist": "",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "n7kFRxFIPrI",
+      "audio": "",
+      "votes": {},
+      "status": "queued",
+      "createdAt": 1790770286121,
+      "playedAt": 0
+    },
+    {
+      "id": "tmuo2e7lqd497845e",
+      "deviceId": "dmuntde0etoxyl52a",
+      "title": "Taylor Swift - Style",
+      "artist": "Taylor Swift",
+      "requester": "Tamu",
+      "message": "",
+      "yt": "-CmadmM5cOk",
+      "audio": "",
+      "votes": {
+        "dmuntde0etoxyl52a": 1
+      },
+      "status": "queued",
+      "createdAt": 1790770290686,
+      "playedAt": 0
+    }
+  ],
+  "autoNext": true,
+  "player": {
+    "status": "siap",
+    "detail": "Menunggu request masuk.",
+    "trackId": "",
+    "ytSync": "tidak diketahui",
+    "ytNext": "",
+    "updatedAt": 1790767493251
+  }
+}

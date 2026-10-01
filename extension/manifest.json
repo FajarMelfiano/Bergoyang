@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Request Lagu — Pemutar Otomatis",
+  "version": "1.0.0",
+  "description": "Memutar antrean request lagu otomatis di tab YouTube Music, mengikuti panel DJ.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://*.vercel.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://music.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Request Lagu"
+  }
+}
