@@ -22,6 +22,10 @@ let currentSourceId = null;   // track yang sedang di-playback
 let ytPlayer = null;
 let ytPromise = null;
 let advancing = false;
+// DJ menjeda sendiri lewat Spasi (bukan browser/adzan). Auto-heal pemutar
+// harus menghormati ini — hanya jeda akibat browser (tab tidak terlihat,
+// autoplay diblokir) yang boleh diambil alih otomatis.
+let jedaManual = false;
 
 /* Hanya satu panel DJ yang boleh memutar. Id panel dibuat per tab dan disimpan
  * di sessionStorage agar tetap sama saat panel dimuat ulang. */
@@ -292,6 +296,20 @@ async function detakPemutar() {
   else if (playing && !playing.audio && ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
     if (ytPlayer.getPlayerState() === 2 /* PAUSED */) status = 'jeda';
   }
+
+  // AUTO-HEAL: seharusnya memutar, tapi player terjeda — ini terjadi kalau
+  // browser menolak playVideo() saat tab tidak terlihat (autoplay policy),
+  // atau video selesai dimuat tapi tidak mulai. Coba mainkan lagi otomatis,
+  // asal bukan jeda manual DJ (Spasi) dan bukan jeda adzan.
+  if (playing && !adzan.aktif && !jedaManual) {
+    if (playing.audio && audio.paused) {
+      audio.play().catch(() => { /* abaikan — dicoba lagi di detak berikut */ });
+    } else if (!playing.audio && ytPlayer && typeof ytPlayer.getPlayerState === 'function'
+               && ytPlayer.getPlayerState() === 2 /* PAUSED */) {
+      mainkanVideo();
+    }
+  }
+
   try {
     await api('/api/player/status', 'POST', {
       status, detail,
@@ -320,6 +338,7 @@ function startPlayback(track) {
   const frame = $('playerFrame');
   const hint = $('playerHint');
   currentSourceId = track.id;
+  jedaManual = false; // lagu baru → anggap belum pernah dijeda DJ secara manual
   hint.hidden = true;
   // ada lagu yang diputar → sembunyikan placeholder kosong
   $('playerEmpty').hidden = true;
@@ -392,6 +411,11 @@ async function advance() {
     if (!result.playing) {
       stopPlayback();
       $('nowNote').textContent = 'Antrean selesai. Tidak ada lagu berikutnya.';
+    } else if (result.playing.id !== currentSourceId && kitaPegang()) {
+      // Mulai lagu berikutnya LANGSUNG dari hasil server — jangan tunggu
+      // push state (SSE/polling di-throttle browser saat tab tidak terlihat,
+      // jadi kalau cuma andalkan render(), lagu berikutnya bisa macet).
+      startPlayback(result.playing);
     }
   } catch (err) {
     toast(err.message, 'error');
@@ -823,20 +847,21 @@ function applyState(raw) {
 
 let pollTimer = null;
 
-/** Polling cadangan bila SSE tidak tersedia (mis. di Vercel). */
+/** Ambil state terbaru dari server (mode polling cadangan, mis. di Vercel). */
+async function pollState() {
+  try {
+    const res = await fetch('/api/state');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    applyState(await res.text());
+  } catch {
+    setConn(false);
+  }
+}
+
 function startPolling() {
   if (pollTimer) return;
-  const tick = async () => {
-    try {
-      const res = await fetch('/api/state');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      applyState(await res.text());
-    } catch {
-      setConn(false);
-    }
-  };
-  tick();
-  pollTimer = setInterval(tick, 2500);
+  pollState();
+  pollTimer = setInterval(pollState, 2500);
 }
 
 function connect() {
@@ -1123,16 +1148,16 @@ function setupAdzan() {
 function togglePlayPause() {
   const audio = $('audioEl');
   if (audio && audio.src) {
-    if (audio.paused) audio.play().catch(() => { /* abaikan */ });
-    else audio.pause();
+    if (audio.paused) { jedaManual = false; audio.play().catch(() => { /* abaikan */ }); }
+    else { jedaManual = true; audio.pause(); }
     return;
   }
   if (!ytPlayer || typeof ytPlayer.getPlayerState !== 'function') {
     toast('Belum ada lagu yang dimuat. Tekan "Putar berikutnya" dulu.');
     return;
   }
-  if (ytPlayer.getPlayerState() === 1 /* PLAYING */) ytPlayer.pauseVideo();
-  else ytPlayer.playVideo();
+  if (ytPlayer.getPlayerState() === 1 /* PLAYING */) { jedaManual = true; ytPlayer.pauseVideo(); }
+  else { jedaManual = false; ytPlayer.playVideo(); }
 }
 
 function setupSpacebar() {
@@ -1166,6 +1191,15 @@ async function boot() {
   setupSpacebar();
   setInterval(detakPemutar, 5000);
   setInterval(detakAdzan, 20000);
+  // Saat tab kembali terlihat: kejar yang tertunda. Browser membekukan timer
+  // di tab tersembunyi — pemutaran bisa nyangkut (playVideo ditolak) atau
+  // detak adzan terlewat. Cek ulang segera supaya lagu tetap jalan.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    pollState();      // aman saat SSE pun sedang jalan; langsung sinkron state
+    detakPemutar();   // auto-heal pemutar yang nyangkut
+    cekAdzan();       // jeda/lanjut adzan yang mungkin terlewat
+  });
   connect();
   try {
     const res = await fetch('/api/state');

@@ -814,7 +814,11 @@ async function handleApi(req, res, url) {
     if (method !== 'GET') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
     const a = state.adzan;
     const tanggal = cekTanggal(clean(url.searchParams.get('tanggal'), 20)) || tanggalLocal();
-    if (!a || !a.lat) return sendJson(res, 200, { jadwal: null, durasi: 10, enabled: true });
+    if (!a || !a.lat) return sendJson(res, 200, {
+      jadwal: null,
+      durasi: a && Number.isFinite(a.durasi) ? a.durasi : 10,
+      enabled: Boolean(a && a.enabled),
+    });
     if (!a.jadwal || !a.jadwal[tanggal]) {
       try {
         const jadwal = await ambilJadwalAdzan(a.lat, a.lng, tanggal);
