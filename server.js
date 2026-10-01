@@ -725,7 +725,10 @@ async function handleApi(req, res, url) {
       deviceId,
       title,
       artist: clean(body.artist, 120),
-      requester: clean(body.requester, 40) || 'Tamu',
+      // Peminta = username yang login (satu sumber kebenaran dengan deviceId),
+      // bukan teks yang diketik di form — supaya nama di antrean selalu cocok
+      // dengan akun pengirim dan tidak bisa dipalsukan.
+      requester: sesi.username,
       message: state.event.allowMessages ? clean(body.message, 240) : '',
       yt,
       audio: '',

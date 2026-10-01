@@ -89,8 +89,10 @@ function showLogin() {
 function showApp() {
   document.body.dataset.auth = 'true';
   $('guestMenu').hidden = false;
-  $('guestChip').textContent = user ? user.nama : '';
-  if (user && user.nama) $('requester').value = user.nama;
+  // identitas yang tampil memakai username (bukan nama tampilan) — sama
+  // dengan yang dipakai server saat menyimpan siapa peminta lagu
+  $('guestChip').textContent = user ? user.username : '';
+  if (user && user.username) $('requester').value = user.username;
 }
 
 function hanguskanSesi(notify = true) {
@@ -127,7 +129,7 @@ function setupLogin() {
       $('loginUser').value = '';
       $('loginPass').value = '';
       showApp();
-      toast(`Halo ${user.nama}! Kamu bisa request lagu sekarang.`);
+      toast(`Halo ${user.username}! Kamu bisa request lagu sekarang.`);
     } catch (err) {
       note.dataset.tone = 'error';
       note.textContent = err.message;
@@ -525,7 +527,7 @@ function setupForm() {
     const payload = {
       title,
       artist: $('artist').value.trim(),
-      requester: $('requester').value.trim(),
+      // requester tidak dikirim: server memakai username dari sesi login
       message: $('message') ? $('message').value.trim() : '',
       // pilihan dari saran lebih dulu; kalau tidak ada, tempelan manual.
       yt: pickedYt || ($('source') && $('source').value.trim() ? $('source').value.trim() : ''),

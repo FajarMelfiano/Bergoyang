@@ -115,3 +115,11 @@ body[data-auth="true"] .gate { display: none; }
 @media (max-width: 560px) {
   .guser__panel { position: fixed; right: 12px; left: 12px; width: auto; }
 }
+
+/* Field nama yang terisi otomatis dari username akun — bukan untuk diedit,
+   jadi tampilannya dibuat berbeda dari input biasa (kursor bukan teks). */
+#requester[readonly] {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  border-style: dashed;
+  cursor: default;
+}

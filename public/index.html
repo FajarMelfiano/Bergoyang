@@ -115,8 +115,9 @@
         </div>
 
         <div class="field">
-          <label for="requester">Nama kamu <span style="font-weight:400;text-transform:none">(opsional)</span></label>
-          <input id="requester" name="requester" type="text" autocomplete="nickname" maxlength="40" placeholder="misal: Dina" />
+          <label for="requester">Nama kamu</label>
+          <input id="requester" name="requester" type="text" autocomplete="username" maxlength="40" readonly aria-describedby="requesterNote" />
+          <p class="form-note" id="requesterNote">Otomatis diisi dari username akun kamu.</p>
         </div>
 
         <div class="field" id="messageField">
