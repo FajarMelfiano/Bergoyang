@@ -58,9 +58,14 @@ Banner yang muncul:
 ### Mode daring — Vercel (sudah ter-deploy)
 
 Server sudah hidup di **`https://requestlagu.vercel.app`**. Tidak perlu
-menjalankan `node server.js` — tamu & panel DJ cukup membuka alamat itu dari
-HP/komputer mana saja yang punya internet. Login pakai username + password
-yang sama.
+menjalankan `node server.js` — buka alamat itu dari HP/komputer mana saja
+yang punya internet.
+
+- **Halaman tamu wajib login** (privat): panitia masuk dengan username +
+  password masing-masing, baru bisa request & vote. Orang yang belum
+  terdaftar tidak bisa masuk maupun mengirim request.
+- **Panel DJ `/dj` hanya untuk admin** — akun panitia biasa ditolak dengan
+  pesan + link kembali ke halaman tamu.
 
 ```bash
 # memperbarui versi daring setelah mengubah kode:
