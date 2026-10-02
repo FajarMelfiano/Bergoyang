@@ -95,11 +95,6 @@
 
   <!-- PANEL -->
   <main class="console" id="appView" hidden>
-    <div class="adzan-banner" id="adzanBanner" role="status" hidden>
-      <span class="adzan-banner__dot" aria-hidden="true"></span>
-      <span id="adzanBannerText">Sedang adzan — pemutaran dijeda otomatis</span>
-    </div>
-
     <div class="console__deck">
       <!-- konsol pemutar -->
       <section class="deck" aria-labelledby="nowLabel">
@@ -148,6 +143,17 @@
             <button class="btn btn--danger" id="stopBtn" type="button">Hentikan</button>
           </div>
 
+          <!-- Sakelar auto-lanjut: "Hentikan" mematikan auto-play, jadi harus ada
+               cara menyalakannya lagi tanpa menekan "Putar berikutnya". -->
+          <div class="toggle-row">
+            <span>
+              Auto-lanjut
+              <small>Lagu berikutnya diputar otomatis. Mati = kamu yang kendalikan manual.</small>
+            </span>
+            <button class="switch" type="button" role="switch" id="autoNextSwitch"
+                    aria-checked="true" aria-label="Auto-lanjut"></button>
+          </div>
+
           <p class="deck__note" id="nowNote" role="status" aria-live="polite"></p>
 
           <div class="src-box" id="sourceRow" hidden>
@@ -178,12 +184,26 @@
         <div class="settings__adzan">
           <p class="settings__adzan-title">Adzan otomatis</p>
           <p class="hint">Pemutar utama jeda sendiri saat adzan masuk, dan lanjut otomatis setelah selesai.</p>
+          <div class="field field--sm">
+            <label for="adzanKota">Kota atau kabupaten acara</label>
+            <input id="adzanKota" type="text" autocomplete="off" spellcheck="false"
+                   list="adzanKotaSaran" placeholder="misal: Bogor" />
+            <p class="hint">Dari daftar kota Indonesia, dihitung ulang tiap hari.</p>
+            <datalist id="adzanKotaSaran"></datalist>
+            <div class="settings__adzan-row">
+              <button class="btn btn--ghost btn--sm" id="adzanKotaBtn" type="button">Ambil dari kota</button>
+            </div>
+            <p class="form-note" id="adzanKotaNote" role="status"></p>
+          </div>
+
           <div class="settings__adzan-row">
-            <button class="btn btn--ghost btn--sm" id="adzanLokasiBtn" type="button">Atur dari lokasi saya</button>
+            <button class="btn btn--ghost btn--sm" id="adzanLokasiBtn" type="button">Ambil dari lokasi HP</button>
             <label class="settings__adzan-toggle">
               <input type="checkbox" id="adzanEnabled" /> Aktifkan jeda adzan
             </label>
           </div>
+          <p class="hint">Pakai "Ambil dari kota" lebih dulu — lokasi HP sering bukan lokasi acara.</p>
+
           <div class="field field--sm">
             <label for="adzanDurasi">Lama jeda adzan (menit)</label>
             <input id="adzanDurasi" type="number" min="1" max="60" step="1" value="10" />
@@ -229,6 +249,28 @@
       </div>
     </section>
   </main>
+
+  <!-- Popup jeda adzan: layout panel DJ tidak berubah sama sekali —
+       yang muncul hanya ini di atasnya, dan DJ boleh menutupnya. -->
+  <dialog class="adzan-dialog" id="adzanDialog" aria-labelledby="adzanDialogJudul">
+    <div class="adzan-dialog__badan">
+      <div class="adzan-dialog__atas">
+        <span class="adzan-dialog__tanda" aria-hidden="true"></span>
+        <span class="adzan-dialog__label">Adzan</span>
+        <span class="adzan-dialog__sisa" id="adzanDialogSisa"></span>
+      </div>
+      <h2 class="adzan-dialog__judul" id="adzanDialogJudul">
+        Jeda — <span id="adzanDialogNama">—</span>
+      </h2>
+      <div class="adzan-dialog__garis" aria-hidden="true">
+        <span class="adzan-dialog__isi" id="adzanDialogProgress"></span>
+      </div>
+      <p class="adzan-dialog__catatan" id="adzanDialogText">
+        Pemutaran dijeda otomatis · lanjut diputar setelah adzan selesai
+      </p>
+      <button class="btn btn--ghost btn--block" id="adzanDialogTutup" type="button">Kembali ke panel</button>
+    </div>
+  </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 

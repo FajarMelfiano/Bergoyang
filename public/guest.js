@@ -234,22 +234,74 @@ async function muatAdzanTamu() {
   cekAdzanTamu();
 }
 
+/* Mode adzan mengubah seluruh halaman, bukan cuma menyalakan pil kecil:
+   panggung meredup, form dikunci, dan band tenang mengambil alih layar. */
 function cekAdzanTamu() {
   const strip = $('adzanStrip');
   if (!strip) return;
   if (adzanTamu.tanggal && adzanTamu.tanggal !== tanggalLocal()) { muatAdzanTamu(); return; }
-  if (!adzanTamu.enabled || !adzanTamu.jadwal) { strip.hidden = true; return; }
+  if (!adzanTamu.enabled || !adzanTamu.jadwal) { setModeAdzan(null, 0); return; }
+
   const sekarang = new Date();
   const menit = sekarang.getHours() * 60 + sekarang.getMinutes();
   let nama = null;
+  let mulaiDipakai = 0;
   for (const [key, jam] of Object.entries(adzanTamu.jadwal)) {
     const bagian = String(jam).split(':').map(Number);
     if (bagian.length < 2 || bagian.some((n) => !Number.isFinite(n))) continue;
     const mulai = bagian[0] * 60 + bagian[1];
-    if (menit >= mulai && menit < mulai + adzanTamu.durasi) { nama = ADZAN_NAMA[key] || key; break; }
+    if (menit >= mulai && menit < mulai + adzanTamu.durasi) {
+      nama = ADZAN_NAMA[key] || key;
+      mulaiDipakai = mulai;
+      break;
+    }
   }
-  strip.hidden = !nama;
-  if (nama) $('adzanStripText').textContent = `Sedang adzan ${nama} — lagu lanjut otomatis setelah selesai`;
+  setModeAdzan(nama, mulaiDipakai);
+}
+
+function setModeAdzan(nama, mulai) {
+  const strip = $('adzanStrip');
+  const aktif = Boolean(nama);
+
+  // seluruh halaman masuk/keluar dari mode adzan
+  if (document.body.dataset.adzan !== String(aktif)) {
+    document.body.dataset.adzan = String(aktif);
+  }
+  strip.hidden = !aktif;
+  if (!aktif) {
+    terapkanKunciForm(false);
+    return;
+  }
+
+  const durasi = Math.max(1, Number(adzanTamu.durasi) || 10);
+  const sekarang = new Date();
+  const menit = sekarang.getHours() * 60 + sekarang.getMinutes();
+  const sisa = Math.max(0, mulai + durasi - menit);
+
+  $('adzanPrayer').textContent = nama;
+  $('adzanRemain').textContent = sisa > 0 ? `sisa ± ${sisa} menit` : 'sebentar lagi selesai';
+  $('adzanStripText').textContent =
+    `Lagu dijeda otomatis · lanjut diputar setelah adzan ${nama} selesai`;
+  // garis yang habis seiring waktu adzan
+  $('adzanProgress').style.width = `${Math.max(0, Math.min(100, (sisa / durasi) * 100))}%`;
+
+  terapkanKunciForm(true);
+}
+
+/* Selama adzan, tombol kirim mati dan petunjuknya berubah —
+   supaya penonton tidak merasa form-nya rusak. */
+function terapkanKunciForm(adzan) {
+  const btn = $('submitBtn');
+  const hint = $('formHint');
+  if (!btn || !hint) return;
+  if (adzan) {
+    btn.disabled = true;
+    hint.textContent = 'Sebentar — sedang adzan. Form kembali aktif otomatis setelah selesai.';
+    return;
+  }
+  // kembalikan sesuai kondisi terakhir (antrean tutup/buka)
+  const s = window.__stateTerkini;
+  if (s && s.event) render(s);
 }
 
 /* -------------------------------------------------------------- antrean */
@@ -421,14 +473,18 @@ function render() {
   $('doneSummary').textContent = `Sudah diputar (${done.length})`;
   if (done.length) renderDone($('doneList'), done.slice(-12).reverse());
 
+  window.__stateTerkini = state;
   const closed = !event.open;
-  $('submitBtn').disabled = closed;
-  const batas = Number(state.batas) || 0;
-  $('formHint').textContent = closed
-    ? 'Request sedang ditutup. Tunggu DJ membuka lagi.'
-    : batas
-      ? `Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi. Maksimal ${batas} lagu, kalau penuh request ditutup otomatis.`
-      : 'Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi.';
+  const sedangAdzan = document.body.dataset.adzan === 'true';
+  if (!sedangAdzan) {
+    $('submitBtn').disabled = closed;
+    const batas = Number(state.batas) || 0;
+    $('formHint').textContent = closed
+      ? 'Request sedang ditutup. Tunggu DJ membuka lagi.'
+      : batas
+        ? `Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi. Maksimal ${batas} lagu, kalau penuh request ditutup otomatis.`
+        : 'Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi.';
+  }
   $('messageField').hidden = !event.allowMessages;
 }
 
@@ -670,7 +726,7 @@ async function boot() {
     showLogin();
   }
   muatAdzanTamu();
-  setInterval(cekAdzanTamu, 30000);
+  setInterval(cekAdzanTamu, 15000);
 }
 
 boot();
