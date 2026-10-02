@@ -95,6 +95,9 @@ function showLogin() {
   $('guestMenu').hidden = true;
   $('guestMenu').removeAttribute('open');
   $('guestChip').textContent = '';
+  // Kolom kiri otomatis berganti ke kartu masuk (CSS lewat body[data-auth]).
+  // Render ulang supaya tombol vote ikut berubah status (nonaktif saat belum masuk).
+  if (state) render();
 }
 
 /** Isi field "Nama kamu" dengan username akun yang sedang login. */
@@ -109,6 +112,14 @@ function showApp() {
   // dengan yang dipakai server saat menyimpan siapa peminta lagu
   $('guestChip').textContent = user ? user.username : '';
   isiNamaPeminta();
+  // Kolom kiri otomatis berganti ke slip request. Render ulang supaya tombol
+  // vote langsung aktif setelah berhasil masuk.
+  if (state) render();
+}
+
+/** Sudah login atau belum? (request & vote wajib login) */
+function sudahLogin() {
+  return Boolean(token);
 }
 
 function hanguskanSesi(notify = true) {
@@ -329,9 +340,14 @@ function renderQueue(container, tracks) {
     const sideParts = [];
     if (nextUp) sideParts.push(el('span', { class: 'tag tag--live', text: 'Berikutnya' }));
     if (canVote) {
+      // Pengunjung yang belum login tetap boleh melihat jumlah vote, tapi
+      // tombolnya dimatikan supaya tidak berakhir di pesan "sesi habis".
+      const bolehVote = sudahLogin();
       sideParts.push(el('button', {
         class: 'vote',
         type: 'button',
+        disabled: !bolehVote,
+        title: bolehVote ? '' : 'Masuk dulu untuk memberi vote',
         'aria-pressed': voted ? 'true' : 'false',
         'aria-label': `${voted ? 'Batalkan vote' : 'Vote'} untuk ${track.title}`,
         onclick: (e) => handleVote(track, e.currentTarget),

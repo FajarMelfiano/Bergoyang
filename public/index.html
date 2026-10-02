@@ -54,22 +54,8 @@
   </header>
 
   <!-- GERBANG LOGIN: hanya panitia terdaftar yang bisa request -->
-  <div class="gate" id="loginGate">
-    <form class="form-slip" id="loginForm" novalidate>
-      <h2>Masuk dulu</h2>
-      <p class="hint" id="loginGateHint">Halaman ini privat — hanya panitia terdaftar yang bisa kirim request. Masuk pakai username &amp; password kamu.</p>
-      <div class="field">
-        <label for="loginUser">Username</label>
-        <input id="loginUser" name="username" autocomplete="username" autocapitalize="off"
-               spellcheck="false" required placeholder="username kamu" />
-      </div>
-      <div class="field">
-        <label for="loginPass">Password</label>
-        <input id="loginPass" type="password" autocomplete="current-password" required placeholder="password kamu" />
-      </div>
-      <button class="btn btn--primary" type="submit">Masuk</button>
-      <p class="form-note" id="loginNote" role="alert"></p>
-    </form>
+  <div class="gate" id="loginGate" hidden>
+    <p class="sr-only">Halaman privat — masuk dulu untuk kirim request.</p>
   </div>
 
   <section class="hero">
@@ -87,8 +73,25 @@
   </section>
 
   <main class="layout" id="main">
-    <!-- FORM REQUEST -->
+    <!-- Kolom kiri: sebelum masuk, yang tampil kartu masuk; sesudah masuk,
+         slip request. Satu kolom, ditukar otomatis lewat body[data-auth]. -->
     <div class="layout__form">
+      <form class="form-slip" id="loginForm" novalidate>
+        <h2>Masuk dulu</h2>
+        <p class="hint" id="loginGateHint">Halaman ini privat — hanya panitia terdaftar yang bisa kirim request. Masuk pakai username &amp; password kamu.</p>
+        <div class="field">
+          <label for="loginUser">Username</label>
+          <input id="loginUser" name="username" autocomplete="username" autocapitalize="off"
+                 spellcheck="false" required placeholder="username kamu" />
+        </div>
+        <div class="field">
+          <label for="loginPass">Password</label>
+          <input id="loginPass" type="password" autocomplete="current-password" required placeholder="password kamu" />
+        </div>
+        <button class="btn btn--primary" type="submit">Masuk</button>
+        <p class="form-note" id="loginNote" role="alert"></p>
+      </form>
+
       <form class="form-slip" id="requestForm" novalidate>
         <h2>Slip request</h2>
         <p class="hint" id="formHint">Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi.</p>

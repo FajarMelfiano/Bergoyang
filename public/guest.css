@@ -1,15 +1,92 @@
 /* Gaya khusus halaman tamu: gerbang login, menu user, strip adzan.
    Dipasang setelah styles.css; tidak mengubah aturan styles.css yang sudah ada. */
 
-/* sembunyikan isi halaman sebelum login (body[data-auth="false"]) */
-body[data-auth="false"] .hero,
-body[data-auth="false"] .layout,
-body[data-auth="false"] .footer { display: none; }
+/* =========================================================================
+   Halaman tamu — belum login vs sudah login
+   ---------------------------------------------------------------------------
+   Satu kolom kiri dipakai dua bentuk, ditukar otomatis lewat body[data-auth]:
+     belum login  → kartu masuk  (#loginForm)
+     sudah login  → slip request (#requestForm)
+   Kolom kanan (antrean) untuk dua-duanya, dan bentuknya persis sama seperti
+   desain lama. Yang berubah hanya isi kolom kiri.
+   ========================================================================= */
+
+/* tukar isi kolom kiri */
+body[data-auth="false"] #requestForm { display: none; }
+body[data-auth="false"] #gateHint { display: none; }
+body[data-auth="true"] #loginForm { display: none; }
 body[data-auth="true"] .gate { display: none; }
+
+/* .gate tidak lagi jadi pembungkus (form login pindah ke kolom kiri) */
+.gate { display: none; }
+
+/* --------------------------------------- form nempel, tetap terjangkau
+   Desain lama: halaman yang bergulir, kolom slip request position: sticky.
+   Bug lama: sticky tanpa batas tinggi. Kalau form lebih tinggi dari layar,
+   bagian bawahnya (tombol "Kirim ke antrean") terkunci dan tidak bisa
+   dijangkau selama halaman bergulir mengikuti antrean yang jauh lebih panjang.
+   Perbaikannya: batasi tinggi form sebesar layar yang tersedia lalu beri
+   gulir sendiri HANYA pada form. Di layar normal isinya muat, jadi tidak ada
+   scrollbar tambahan dan tampilannya tetap seperti desain lama. */
+@media (min-width: 1120px) {
+  .layout__form {
+    position: sticky;
+    top: calc(var(--header-h) + 18px);
+    max-height: calc(100dvh - var(--header-h) - 36px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 8px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(246, 166, 35, 0.45) transparent;
+  }
+  /* kolom antrean ikut halaman, tidak diberi gulir sendiri (sesuai desain lama) */
+  .layout__queue { position: static; max-height: none; overflow: visible; padding-right: 0; }
+}
+
+/* Tablet & ponsel: satu kolom (form dulu, antrean di bawahnya). Dua kolom baru
+   masuk di 1120px — di bawah itu kolom antrean hanya tersisa ~500px sehingga
+   slip-nya sempit sekali. */
+@media (max-width: 1119px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .layout__form,
+  .layout__queue {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+/* Laptop pendek (720p / 768p): rapatkan isi kolom kiri supaya tombol Kirim
+   tetap terlihat tanpa perlu menggulir sama sekali. */
+@media (min-width: 1120px) and (max-height: 820px) {
+  .form-slip { padding: 16px 16px 14px; }
+  .form-slip h2 { font-size: 1.3rem; margin-top: 4px; }
+  .form-slip .hint { margin-bottom: 12px; }
+  .layout__form .field { margin-bottom: 10px; }
+  .layout__form .field textarea { min-height: 48px; }
+}
+
+/* scrollbar tipis pada form saja */
+.layout__form::-webkit-scrollbar { width: 9px; }
+.layout__form::-webkit-scrollbar-track {
+  background: rgba(243, 236, 221, 0.05);
+  border-radius: 99px;
+}
+.layout__form::-webkit-scrollbar-thumb {
+  background: rgba(246, 166, 35, 0.42);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.layout__form::-webkit-scrollbar-thumb:hover {
+  background: rgba(246, 166, 35, 0.7);
+  background-clip: content-box;
+}
 
 .gate {
   max-width: 520px;
-  margin: 34px auto 60px;
+  margin: 26px auto 38px;
   padding: 4px 14px 0;
 }
 
@@ -119,7 +196,14 @@ body[data-auth="true"] .gate { display: none; }
 /* Field nama yang terisi otomatis dari username akun — bukan untuk diedit,
    jadi tampilannya dibuat berbeda dari input biasa (kursor bukan teks). */
 #requester[readonly] {
-  background: color-mix(in srgb, currentColor 6%, transparent);
+  background: rgba(27, 22, 16, 0.045);
   border-style: dashed;
+  border-color: rgba(27, 22, 16, 0.3);
   cursor: default;
+}
+
+/* tombol vote nonaktif untuk pengunjung yang belum masuk */
+.vote:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
