@@ -61,13 +61,24 @@ function toast(message, tone = 'ok') {
   toastTimer = setTimeout(() => { node.dataset.show = 'false'; }, 3400);
 }
 
+/**
+ * Kirim data. 503 = server sedang sibuk (request lain sedang menyimpan, mis.
+ * heartbeat panel DJ). Itu kondisi sesaat, jadi dicoba lagi beberapa kali
+ * supaya request Binding tidak hilang.
+ */
 async function post(url, body) {
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-dj-token': token },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
+  let res;
+  let data = {};
+  for (let percobaan = 1; percobaan <= 4; percobaan++) {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dj-token': token },
+      body: JSON.stringify(body),
+    });
+    data = await res.json().catch(() => ({}));
+    if (res.status !== 503) break;
+    await new Promise((r) => setTimeout(r, 400 * percobaan));
+  }
   if (res.status === 401) {
     // sesi habis atau belum login → kembali ke gerbang login
     hanguskanSesi();

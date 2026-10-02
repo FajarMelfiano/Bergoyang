@@ -115,7 +115,37 @@ function loadSecret() {
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const STATE_KEY = 'requestlagu:state';
+const LOCK_KEY = 'requestlagu:lock';
 let dirty = false; // penanda ada mutasi yang belum disimpan (mode daring)
+let stateSiap = false; // state request ini benar-benar termuat dari Redis?
+
+/**
+ * Kunci tulis lintas instance. Mutex modul (chain) hanya berlaku di satu
+ * instance, sedangkan Vercel bisa menjalankan beberapa instance sekaligus —
+ * tanpa kunci ini, satu instance bisa menimpa hasil instance lain.
+ * Return { ok: true, token } | { ok: false,_reason: 'redis' | 'dimiliki' }
+ * 'redis' = Redis tidak bisa dihubungi (coba lagi tidak berguna, fail fast).
+ */
+async function ambilKunci() {
+  if (!IS_VERCEL || !REDIS_URL || !REDIS_TOKEN) return { ok: true, token: 'lokal' };
+  const token = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+  try {
+    const res = await redis('SET', LOCK_KEY, token, 'NX', 'EX', '8');
+    return res === 'OK' ? { ok: true, token } : { ok: false, reason: 'dimiliki' };
+  } catch (err) {
+    console.error('Gagal mengambil kunci tulis:', err.message);
+    return { ok: false, reason: 'redis' };
+  }
+}
+
+/** Lepas kunci hanya kalau masih milik kita (bisa kedaluwarsa di tengah jalan). */
+async function lepasKunci(token) {
+  if (!token || token === 'lokal') return;
+  try {
+    const sekarang = await redis('GET', LOCK_KEY);
+    if (sekarang === token) await redis('DEL', LOCK_KEY);
+  } catch { /* kunci akan hilang sendiri setelah kedaluwarsa */ }
+}
 
 async function redis(cmd, ...args) {
   const res = await fetch(REDIS_URL, {
@@ -127,15 +157,22 @@ async function redis(cmd, ...args) {
   return (await res.json()).result;
 }
 
-/** Ambil state terbaru dari Redis (mode daring). Null = belum ada / belum dikonfigurasi. */
+/**
+ * Ambil state terbaru dari Redis (mode daring).
+ * PENTING: bedakan "gagal baca" dari "belum ada state".
+ *  - { ok: true,  state }  → data terbaca (state null = Redis masih kosong, sah)
+ *  - { ok: false }         → Redis error; pemanggil HARUS berhenti, jangan
+ *                            mutate & menyimpan state lokal karena itu akan
+ *                            menimpa seluruh data acara dengan state kosong.
+ */
 async function loadStateRemote() {
-  if (!IS_VERCEL || !REDIS_URL || !REDIS_TOKEN) return null;
+  if (!IS_VERCEL || !REDIS_URL || !REDIS_TOKEN) return { ok: true, state: null, lokal: true };
   try {
     const raw = await redis('GET', STATE_KEY);
-    return raw ? normalizeState(JSON.parse(raw)) : null;
+    return { ok: true, state: raw ? normalizeState(JSON.parse(raw)) : null };
   } catch (err) {
     console.error('Gagal mengambil state dari Redis:', err.message);
-    return null;
+    return { ok: false, error: err.message };
   }
 }
 
@@ -1183,21 +1220,59 @@ let chain = Promise.resolve();
 
 async function processRequest(req, res) {
   dirty = false;
+  stateSiap = !IS_VERCEL; // mode lokal: state sudah dimuat dari berkas
+
   if (IS_VERCEL && (req.url || '').startsWith('/api/')) {
-    const fresh = await loadStateRemote();
-    if (fresh) state = fresh;
-  }
-  try {
-    await serve(req, res);
-  } finally {
-    if (dirty) {
-      try {
-        await saveStateRemote();
-      } catch (err) {
-        console.error('Gagal menyimpan state ke Redis:', err.message);
+    // Request yang mengubah data harus memegang kunci supaya tidak menimpa
+    // instance lain yang sedang menyimpan hasil-nya.
+    const mauUbah = req.method !== 'GET' && req.method !== 'HEAD';
+    let kunci = null;
+    if (mauUbah) {
+      // Tunggu hanya kalau kuncinya memang dipegang instance lain. Kalau
+      // Redis-nya error, langsung menyerah supaya tidak menambah 2 detik
+      // penundaan pada setiap request.
+      for (let i = 0; i < 10; i++) {
+        const kunciRes = await ambilKunci();
+        if (kunciRes.ok) { kunci = kunciRes.token; break; }
+        if (kunciRes.reason === 'redis') {
+          return sendJson(res, 503, { error: 'Data acara sedang tidak terbaca. Coba lagi sebentar.' });
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      if (!kunci) {
+        return sendJson(res, 503, { error: 'Server sedang sibuk. Coba lagi sebentar.' });
       }
     }
+
+    try {
+      const hasil = await loadStateRemote();
+      if (!hasil.ok) {
+        // Redis tidak terbaca: JANGAN mutate dan JANGAN simpan — memuat dari
+        // state default lalu 저장 akan menghapus seluruh antrean & akun.
+        return sendJson(res, 503, { error: 'Data acara sedang tidak terbaca. Coba lagi sebentar.' });
+      }
+      if (hasil.state) state = hasil.state;
+      stateSiap = true;
+    } catch (err) {
+      return sendJson(res, 503, { error: 'Data acara sedang tidak terbaca. Coba lagi sebentar.' });
+    }
+
+    try {
+      await serve(req, res);
+    } finally {
+      if (dirty && stateSiap) {
+        try {
+          await saveStateRemote();
+        } catch (err) {
+          console.error('Gagal menyimpan state ke Redis:', err.message);
+        }
+      }
+      await lepasKunci(kunci);
+    }
+    return;
   }
+
+  await serve(req, res);
 }
 
 /**
