@@ -100,18 +100,12 @@ function showLogin() {
   if (state) render();
 }
 
-/** Isi field "Nama kamu" dengan username akun yang sedang login. */
-function isiNamaPeminta() {
-  if (user && user.username) $('requester').value = user.username;
-}
-
 function showApp() {
   document.body.dataset.auth = 'true';
   $('guestMenu').hidden = false;
   // identitas yang tampil memakai username (bukan nama tampilan) — sama
   // dengan yang dipakai server saat menyimpan siapa peminta lagu
   $('guestChip').textContent = user ? user.username : '';
-  isiNamaPeminta();
   // Kolom kiri otomatis berganti ke slip request. Render ulang supaya tombol
   // vote langsung aktif setelah berhasil masuk.
   if (state) render();
@@ -261,7 +255,6 @@ function cekAdzanTamu() {
 /* -------------------------------------------------------------- antrean */
 
 const STATUS_LABEL = {
-  pending: 'Menunggu DJ',
   queued: 'Di antrean',
   playing: 'Sedang diputar',
   done: 'Selesai',
@@ -356,9 +349,6 @@ function renderQueue(container, tracks) {
         el('small', { text: String(jumlahVote) }),
       ]));
     }
-    if (isMine && track.status === 'pending') {
-      sideParts.push(el('span', { class: 'tag', text: STATUS_LABEL.pending }));
-    }
     if (rejected) sideParts.push(el('span', { class: 'tag', text: 'Ditolak' }));
     const side = sideParts.length ? el('div', { class: 'slip__side' }, sideParts) : null;
 
@@ -416,13 +406,11 @@ function render() {
 
   const playing = tracks.find((t) => t.status === 'playing') || null;
   const queued = urutAntrean(tracks.filter((t) => t.status === 'queued'));
-  const pending = tracks.filter((t) => t.status === 'pending');
   const done = tracks.filter((t) => t.status === 'done');
   const rejectedMine = tracks.filter((t) => t.status === 'rejected' && t.deviceId === deviceId);
 
   $('statQueued').textContent = String(queued.length);
   $('statPlayed').textContent = String(done.length);
-  $('statWaiting').textContent = String(pending.length);
   $('queueCount').textContent = `${queued.length} lagu`;
 
   renderNowPlaying($('nowPlaying'), playing);
@@ -435,9 +423,12 @@ function render() {
 
   const closed = !event.open;
   $('submitBtn').disabled = closed;
+  const batas = Number(state.batas) || 0;
   $('formHint').textContent = closed
-    ? 'Request sedang ditutup oleh DJ. Tunggu dibuka lagi.'
-    : 'Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi.';
+    ? 'Request sedang ditutup. Tunggu DJ membuka lagi.'
+    : batas
+      ? `Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi. Maksimal ${batas} lagu, kalau penuh request ditutup otomatis.`
+      : 'Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi.';
   $('messageField').hidden = !event.allowMessages;
 }
 
@@ -487,6 +478,9 @@ function pilihSuggestion(song) {
   $('title').value = song.title;
   $('artist').value = song.artist || '';
   pickedYt = song.yt || '';
+  // Link yang pernah ditempel manual tidak boleh ikut terbawa — sekarang
+  // yang dipilih adalah hasil pencarian.
+  $('source').value = '';
   $('results').replaceChildren();
   const wrap = $('detect');
   if (wrap) wrap.hidden = true;
@@ -523,6 +517,16 @@ function renderResults(songs, query) {
 function setupForm() {
   const form = $('requestForm');
   const titleInput = $('title');
+  const sourceInput = $('source');
+
+  // Kalau user menempel link YouTube sendiri, link itu yang dipakai dan
+  // server tidak perlu mencari lagi. Hasil pencarian yang sebelumnya dipilih
+  // dibuang, karena link yang ditempel adalah pilihan yang lebih disengaja.
+  if (sourceInput) {
+    sourceInput.addEventListener('input', () => {
+      if (sourceInput.value.trim()) pickedYt = '';
+    });
+  }
 
   titleInput.addEventListener('input', () => {
     clearTimeout(searchTimer);
@@ -556,13 +560,15 @@ function setupForm() {
       return;
     }
 
+    const linkTempel = sourceInput ? sourceInput.value.trim() : '';
     const payload = {
       title,
       artist: $('artist').value.trim(),
       // requester tidak dikirim: server memakai username dari sesi login
       message: $('message') ? $('message').value.trim() : '',
-      // pilihan dari saran lebih dulu; kalau tidak ada, tempelan manual.
-      yt: pickedYt || ($('source') && $('source').value.trim() ? $('source').value.trim() : ''),
+      // Link yang ditempel user dipakai langsung (server tidak mencari lagi);
+      // kalau tidak ada, pakai hasil pencarian yang dipilih.
+      yt: linkTempel || pickedYt || '',
     };
 
     $('submitBtn').disabled = true;
@@ -573,16 +579,13 @@ function setupForm() {
       const queued = urutAntrean(state ? state.tracks.filter((t) => t.status === 'queued') : []);
       const posisi = queued.findIndex((t) => t.id === result.track.id) + 1;
       note.dataset.tone = 'ok';
-      note.textContent = result.status === 'pending'
-        ? 'Slip terkirim, menunggu persetujuan DJ.'
+      note.textContent = result.penuh
+        ? `Slip terkirim — ini request terakhir, antrean penuh (${queued.length} lagu) dan request ditutup.`
         : posisi > 0
           ? `Slip terkirim — posisi antrean #${posisi} dari ${queued.length}. Naik urutan kalau dapat vote.`
           : 'Slip terkirim.';
       toast(`“${payload.title}” masuk antrean.`);
       form.reset();
-      // form.reset() mengembalikan input readonly ke nilai default HTML
-      // (yaitu kosong), jadi isi ulang nama dari username yang login.
-      isiNamaPeminta();
       pickedYt = '';
       $('results').replaceChildren();
       const wrap = $('detect');

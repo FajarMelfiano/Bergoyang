@@ -590,12 +590,7 @@ function rowActions(track) {
     } catch (err) { toast(err.message, 'error'); }
   };
 
-  if (track.status === 'pending') {
-    if (bisaKelola()) {
-      add('Setujui', 'btn--amber', () => run('approve', `“${track.title}” disetujui.`));
-      add('Tolak', 'btn--danger', () => run('reject', 'Request ditolak.'));
-    }
-  } else if (track.status === 'queued') {
+  if (track.status === 'queued') {
     add('Putar', 'btn--amber', () => run('play', `Memutar “${track.title}”.`));
     if (bisaKelola()) {
       add('Naik', 'btn--ghost', () => run('up'));
@@ -610,8 +605,8 @@ function rowActions(track) {
 
 function queueRow(track, number) {
   const voteCount = Object.keys(track.votes || {}).length;
-  const tagTone = track.status === 'playing' ? 'live' : track.status === 'pending' ? 'wait' : '';
-  const tagLabel = track.status === 'pending' ? 'Menunggu' : track.status === 'playing' ? 'Diputar' : '';
+  const tagTone = track.status === 'playing' ? 'live' : '';
+  const tagLabel = track.status === 'playing' ? 'Diputar' : '';
 
   return el('article', { class: 'row', 'data-status': track.status }, [
     el('div', { class: 'row__no', text: number == null ? '—' : String(number) }),
@@ -715,20 +710,11 @@ function render() {
 
   syncSettings();
 
-  const pending = tracks.filter((t) => t.status === 'pending');
   const queued = urutAntrean(tracks.filter((t) => t.status === 'queued'));
   const done = tracks.filter((t) => t.status === 'done');
   const playing = tracks.find((t) => t.status === 'playing');
 
-  $('queueCount').textContent = `${pending.length + queued.length} menunggu`;
-
-  const pendingList = $('pendingList');
-  pendingList.replaceChildren(...[
-    pending.length
-      ? el('h3', { class: 'section-title', style: 'font-size:1rem', text: `Menunggu persetujuan (${pending.length})` })
-      : null,
-    ...pending.map((t) => queueRow(t, null)),
-  ].filter(Boolean));
+  $('queueCount').textContent = `${queued.length} di antrean`;
 
   const queuedList = $('queuedList');
   queuedList.replaceChildren(...[
@@ -746,14 +732,13 @@ function render() {
     $('doneList').replaceChildren(...done.slice(-15).reverse().map((t) => queueRow(t, null)));
   }
 
-  $('emptyQueue').hidden = pending.length + queued.length + (playing ? 1 : 0) > 0;
+  $('emptyQueue').hidden = queued.length + (playing ? 1 : 0) > 0;
 
   // toggle pengaturan hanya dirender untuk admin (panel DJ admin-only)
   const toggles = $('toggles');
   if (bisaKelola()) {
     toggles.replaceChildren(
       toggleSwitch({ key: 'open', label: 'Buka request tamu', hint: 'Penonton bisa mengirim slip request' }),
-      toggleSwitch({ key: 'autoApprove', label: 'Setujui otomatis', hint: 'Request langsung masuk antrean' }),
       toggleSwitch({ key: 'allowVotes', label: 'Voting antrean', hint: 'Tamu bisa vote lagu favorit' }),
       toggleSwitch({ key: 'allowMessages', label: 'Pesan/dedikasi', hint: 'Tamu bisa melampirkan pesan' }),
     );

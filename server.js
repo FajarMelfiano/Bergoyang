@@ -46,7 +46,6 @@ const DEFAULT_EVENT = {
   name: 'Request Lagu Live',
   tagline: 'Kirim lagu, tunggu giliran, langsung diputar.',
   open: true,
-  autoApprove: true,
   allowVotes: true,
   allowMessages: true,
 };
@@ -59,7 +58,12 @@ function normalizeState(parsed) {
   parsed = parsed && typeof parsed === 'object' ? parsed : {};
   parsed.event = { ...DEFAULT_EVENT, ...(parsed.event || {}) };
   parsed.tracks = Array.isArray(parsed.tracks) ? parsed.tracks : [];
-  for (const t of parsed.tracks) if (t.votes == null || typeof t.votes !== 'object') t.votes = {};
+  for (const t of parsed.tracks) {
+    if (t.votes == null || typeof t.votes !== 'object') t.votes = {};
+    // tidak ada lagi status "menunggu" — request yang masih tertahan langsung
+    // masuk antrean supaya tidak menggantung tanpa bisa diputar
+    if (t.status === 'pending') t.status = 'queued';
+  }
   if (typeof parsed.autoNext !== 'boolean') parsed.autoNext = true;
   // daftar user panel (hanya hash+salt, tidak pernah password polos)
   parsed.users = Array.isArray(parsed.users) ? parsed.users : [];
@@ -116,6 +120,9 @@ const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const STATE_KEY = 'requestlagu:state';
 const LOCK_KEY = 'requestlagu:lock';
+/** Batas lagu yang boleh menunggu di antrean. Setelah tercapai, request
+ *  ditutup otomatis sampai DJ membukanya lagi. */
+const BATAS_REQUEST = 20;
 let dirty = false; // penanda ada mutasi yang belum disimpan (mode daring)
 let stateSiap = false; // state request ini benar-benar termuat dari Redis?
 
@@ -241,7 +248,6 @@ function publicState() {
       name: state.event.name,
       tagline: state.event.tagline,
       open: state.event.open,
-      autoApprove: state.event.autoApprove,
       allowVotes: state.event.allowVotes,
       allowMessages: state.event.allowMessages,
     },
@@ -251,6 +257,7 @@ function publicState() {
     autoNext: Boolean(state.autoNext),
     player: state.player || null,
     beat: beatCache,
+    batas: BATAS_REQUEST,
     serverTime: Date.now(),
   };
 }
@@ -739,19 +746,38 @@ async function handleApi(req, res, url) {
 
   if (method === 'POST' && p === '/api/request') {
     const body = await readBody(req);
-    if (!state.event.open) return sendJson(res, 403, { error: 'Request sedang ditutup oleh DJ.' });
+    if (!state.event.open) {
+      // Bedakan tutup manual oleh DJ dengan tutup otomatis karena antrean penuh
+      const penuh = state.tracks.filter((t) => t.status === 'queued').length >= BATAS_REQUEST;
+      return sendJson(res, 403, {
+        error: penuh
+          ? `Antrean sudah penuh (${BATAS_REQUEST} lagu). Tunggu DJ membuka lagi.`
+          : 'Request sedang ditutup oleh DJ.',
+        penuh,
+      });
+    }
 
     // Halaman tamu sekarang privat: hanya user terdaftar yang boleh request.
     const sesi = djSesi(req);
     if (!sesi) return sendJson(res, 401, { error: 'Kamu harus masuk dulu untuk request lagu.' });
     const deviceId = sesi.username; // identitas request = username yang login
 
-    // Antrean TIDAK dibatasi jumlahnya: siapa pun boleh request sesuka hati,
-    // vote yang menentukan urutan. Yang dibatasi hanya kecepatan kirim
-    // (anti-abuse) supaya satu orang tidak membanjiri antrean dalam sekejap.
+    // Batas antrean: begitu mencapai BATAS_REQUEST, request otomatis ditutup
+    // supaya tamu tidak menumpuk lagu tanpa batas. DJ yang membuka lagi.
+    const jumlahAntrean = () => state.tracks.filter((t) => t.status === 'queued').length;
+    if (jumlahAntrean() >= BATAS_REQUEST) {
+      if (state.event.open) mutate(() => { state.event.open = false; });
+      return sendJson(res, 403, {
+        error: `Antrean sudah penuh (${BATAS_REQUEST} lagu). Tunggu DJ membuka lagi.`,
+        penuh: true,
+      });
+    }
+
+    // Selain batas antrean, yang dibatasi hanya kecepatan kirim (anti-abuse)
+    // supaya satu orang tidak membanjiri antrean dalam sekejap.
     const recent = state.tracks.filter(
       (t) => t.deviceId === deviceId
-        && ['pending', 'queued'].includes(t.status)
+        && t.status === 'queued'
         && Date.now() - (t.createdAt || 0) < 60_000,
     ).length;
     if (recent >= 10) return sendJson(res, 429, { error: 'Terlalu cepat — tunggu sebentar sebelum kirim lagi.' });
@@ -787,12 +813,18 @@ async function handleApi(req, res, url) {
       yt,
       audio: '',
       votes: {},
-      status: state.event.autoApprove ? 'queued' : 'pending',
+      // Tidak ada lagi status "menunggu": setiap request langsung masuk antrean
+      status: 'queued',
       createdAt: Date.now(),
       playedAt: 0,
     };
-    mutate(() => state.tracks.push(track));
-    return sendJson(res, 201, { track, status: track.status });
+    // Antrean penuh → request ditutup otomatis. DJ yang membuka kembali.
+    const penuh = state.tracks.filter((t) => t.status === 'queued').length + 1 >= BATAS_REQUEST;
+    mutate(() => {
+      state.tracks.push(track);
+      if (penuh) state.event.open = false;
+    });
+    return sendJson(res, 201, { track, status: track.status, penuh });
   }
 
   if (method === 'POST' && p === '/api/vote') {
@@ -1020,7 +1052,7 @@ async function handleApi(req, res, url) {
     }
 
     if (method === 'PATCH' && p === '/api/event') {
-      const allowed = ['name', 'tagline', 'open', 'autoApprove', 'allowVotes', 'allowMessages'];
+      const allowed = ['name', 'tagline', 'open', 'allowVotes', 'allowMessages'];
       mutate(() => {
         for (const key of allowed) {
           if (!(key in body)) continue;
@@ -1089,8 +1121,7 @@ async function handleApi(req, res, url) {
       if (!track) return sendJson(res, 404, { error: 'Lagu tidak ditemukan.' });
       const action = clean(body.action, 24);
 
-      if (action === 'approve') mutate(() => { if (track.status === 'pending') track.status = 'queued'; });
-      else if (action === 'reject') mutate(() => { track.status = 'rejected'; });
+      if (action === 'reject') mutate(() => { track.status = 'rejected'; });
       else if (action === 'play') {
         mutate(() => {
           const current = playingTrack();

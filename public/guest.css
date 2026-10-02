@@ -193,15 +193,6 @@ body[data-auth="true"] .gate { display: none; }
   .guser__panel { position: fixed; right: 12px; left: 12px; width: auto; }
 }
 
-/* Field nama yang terisi otomatis dari username akun — bukan untuk diedit,
-   jadi tampilannya dibuat berbeda dari input biasa (kursor bukan teks). */
-#requester[readonly] {
-  background: rgba(27, 22, 16, 0.045);
-  border-style: dashed;
-  border-color: rgba(27, 22, 16, 0.3);
-  cursor: default;
-}
-
 /* tombol vote nonaktif untuk pengunjung yang belum masuk */
 .vote:disabled {
   opacity: 0.45;
