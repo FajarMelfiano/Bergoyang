@@ -161,32 +161,130 @@ body[data-auth="true"] .gate { display: none; }
 .guser .form-note[data-tone="ok"] { color: #0f7a4d; }
 .guser .form-note[data-tone="error"] { color: #b3261e; }
 
-/* ---------- strip adzan */
-.adzan-strip {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 14px;
-  padding: 7px 14px;
-  background: rgba(246, 166, 35, 0.16);
-  border: 1px solid rgba(246, 166, 35, 0.6);
-  border-radius: 999px;
-  color: #8a5a00;
-  font-family: var(--font-ui, inherit);
-  font-size: 0.84rem;
-  font-weight: 700;
+/* =================================================================
+   ADZAN — "lampu panggung dimatikan"
+   Saat adzan, panggung tidak diberi notifikasi biasa: lampunya meredup,
+   isi halaman mundur ke gelap, dan satu band tenang mengambil alih layar. Tidak ada
+   pulsing — adzan terasa tenang, bukan alarm.
+   ================================================================= */
+
+/* ---------- band adzan (pengganti strip pill yang lama) */
+.adzan-band {
+  margin-bottom: 20px;
+  padding: 16px 18px 14px;
+  border: 1px solid rgba(246, 166, 35, 0.34);
+  border-radius: var(--radius, 4px);
+  background:
+    linear-gradient(180deg, rgba(246, 166, 35, 0.1), rgba(246, 166, 35, 0.03));
+  animation: adzan-masuk 1.2s ease both;
 }
-.adzan-strip__dot {
-  width: 8px; height: 8px;
+
+.adzan-band[hidden] { display: none; }
+
+.adzan-band__atas {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* satu cahaya kecil, tidak berdenyut — hanya menyala tetap */
+.adzan-band__tanda {
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--amber);
-  box-shadow: 0 0 10px rgba(246, 166, 35, 0.9);
+  box-shadow: 0 0 12px rgba(246, 166, 35, 0.55);
   flex: none;
-  animation: adzan-strip-pulse 2.4s ease-in-out infinite;
+  align-self: center;
 }
-@keyframes adzan-strip-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
+
+.adzan-band__label {
+  font-family: var(--font-ui, sans-serif);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(246, 166, 35, 0.8);
+}
+
+.adzan-band__nama {
+  font-family: var(--font-display, sans-serif);
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+  color: #f7e9cf;
+}
+
+.adzan-band__sisa {
+  margin-left: auto;
+  font-family: var(--font-ui, sans-serif);
+  font-size: 0.86rem;
+  color: var(--text-dim, rgba(237, 230, 216, 0.68));
+}
+
+/* garis tipis yang habis seiring waktu adzan */
+.adzan-band__garis {
+  margin-top: 12px;
+  height: 2px;
+  background: rgba(246, 166, 35, 0.16);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.adzan-band__isi {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: rgba(246, 166, 35, 0.75);
+  border-radius: 99px;
+  transition: width 0.6s linear;
+}
+
+.adzan-band__catatan {
+  margin: 10px 0 0;
+  font-size: 0.84rem;
+  color: var(--text-dim, rgba(237, 230, 216, 0.68));
+}
+
+@keyframes adzan-masuk {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- mode standout: seluruh halaman mundur ---------- */
+body[data-adzan="true"] {
+  --amber: #c98f2c; /* lampu tungsten meredup, bukan padam */
+}
+
+body[data-adzan="true"] .hero h1,
+body[data-adzan="true"] .hero-tag,
+body[data-adzan="true"] .hero-stats {
+  opacity: 0.42;
+  transition: opacity 1.2s ease;
+}
+/* judul memakai animasi reveal ber-fill "both" — animasi menimpa opacity,
+   jadi matikan dulu supaya ikut meredup */
+body[data-adzan="true"] .hero h1 { animation: none; }
+
+/* isi halaman (slip request & antrean) tidak bisa dipakai/dipilih — diam, tidak bisa dipakai */
+body[data-adzan="true"] .layout {
+  opacity: 0.5;
+  transition: opacity 1.2s ease;
+}
+body[data-adzan="true"] .layout,
+body[data-adzan="true"] .layout * {
+  pointer-events: none;
+}
+
+body[data-adzan="true"] .layout__form .btn--primary {
+  filter: grayscale(0.6);
+}
+
+/* transisi halus, dan hormati preferensi pengguna yang tidak suka animasi */
+@media (prefers-reduced-motion: reduce) {
+  .adzan-band { animation: none; }
+  .adzan-band__isi { transition: none; }
+  body[data-adzan="true"] .hero h1,
+  body[data-adzan="true"] .layout { transition: none; }
 }
 
 @media (max-width: 560px) {

@@ -59,10 +59,23 @@
   </div>
 
   <section class="hero">
-    <div class="adzan-strip" id="adzanStrip" hidden role="status">
-      <span class="adzan-strip__dot" aria-hidden="true"></span>
-      <span id="adzanStripText">Sedang adzan — pemutaran lanjut otomatis setelah selesai</span>
+    <!-- Band adzan: muncul sebagai satu-satunya yang terang saat jeda.
+         Ganti seluruh ELAHAN adzan, bukan sekadar garis biru di atas. -->
+    <div class="adzan-band" id="adzanStrip" hidden role="status" aria-live="polite">
+      <div class="adzan-band__atas">
+        <span class="adzan-band__tanda" aria-hidden="true"></span>
+        <span class="adzan-band__label">Adzan</span>
+        <span class="adzan-band__nama" id="adzanPrayer">—</span>
+        <span class="adzan-band__sisa" id="adzanRemain"></span>
+      </div>
+      <div class="adzan-band__garis" aria-hidden="true">
+        <span class="adzan-band__isi" id="adzanProgress"></span>
+      </div>
+      <p class="adzan-band__catatan" id="adzanStripText">
+        Lagu dijeda · lanjut otomatis setelah adzan selesai
+      </p>
     </div>
+
     <h1 id="eventName">Request Lagu Live</h1>
     <p class="hero-tag" id="eventTagline">Kirim lagu, tunggu giliran, langsung diputar.</p>
     <div class="hero-stats">

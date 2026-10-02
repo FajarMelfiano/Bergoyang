@@ -459,33 +459,92 @@
 .console .settings__toggles { margin-top: 4px; }
 
 /* ---- adzan otomatis */
-.adzan-banner {
+/* --------------------------------------------------------------------
+   ADZAN — panel DJ tetap layout lama; yang muncul hanya popup jeda ini.
+   Tenang, tanpa denyut: adzan bukan alarm.
+   -------------------------------------------------------------------- */
+.adzan-dialog {
+  width: min(440px, calc(100vw - 32px));
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text, #f4ecdd);
+}
+.adzan-dialog::backdrop {
+  background: rgba(10, 7, 14, 0.72);
+  backdrop-filter: blur(3px);
+}
+.adzan-dialog__badan {
+  padding: 22px 24px 20px;
+  background: linear-gradient(180deg, var(--rack-2, #241a2e), var(--rack, #1c1426));
+  border: 1px solid rgba(246, 166, 35, 0.45);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(246, 166, 35, 0.08);
+  animation: adzan-dialog-masuk 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.adzan-dialog__atas {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  background: linear-gradient(90deg, rgba(246, 166, 35, 0.18), rgba(246, 166, 35, 0.06));
-  border: 1px solid rgba(246, 166, 35, 0.55);
-  border-radius: 6px;
-  color: var(--amber);
-  font-family: var(--font-ui);
-  font-size: 0.94rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  margin-bottom: 12px;
-  animation: adzan-pulse 2.4s ease-in-out infinite;
+  gap: 9px;
 }
-.adzan-banner__dot {
-  width: 9px; height: 9px;
+.adzan-dialog__tanda {
+  width: 7px; height: 7px;
   border-radius: 50%;
   background: var(--amber);
-  box-shadow: 0 0 12px var(--amber);
+  box-shadow: 0 0 12px rgba(246, 166, 35, 0.6);
   flex: none;
 }
-@keyframes adzan-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.62; }
+.adzan-dialog__label {
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(246, 166, 35, 0.85);
 }
+.adzan-dialog__sisa {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 0.84rem;
+  color: var(--text-dim, rgba(244, 236, 221, 0.7));
+}
+.adzan-dialog__judul {
+  margin: 14px 0 0;
+  font-family: var(--font-display, var(--font-ui));
+  font-size: clamp(1.6rem, 5vw, 2.1rem);
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.adzan-dialog__garis {
+  margin-top: 16px;
+  height: 3px;
+  background: rgba(246, 166, 35, 0.16);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.adzan-dialog__isi {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: rgba(246, 166, 35, 0.8);
+  border-radius: 99px;
+  transition: width 0.6s linear;
+}
+.adzan-dialog__catatan {
+  margin: 14px 0 18px;
+  font-size: 0.88rem;
+  color: var(--text-dim, rgba(244, 236, 221, 0.7));
+}
+@keyframes adzan-dialog-masuk {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .adzan-dialog__badan { animation: none; }
+  .adzan-dialog__isi { transition: none; }
+}
+
 .settings__adzan {
   margin-top: 16px;
   padding-top: 14px;
@@ -538,6 +597,78 @@
   border-radius: 4px;
 }
 .adzan-jadwal__row + .adzan-jadwal__row { margin-top: 4px; }
+/* penanda: jam yang sedang dipakai datang dari mana */
+.adzan-jadwal__sumber {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+.adzan-jadwal__sumber[data-sumber="manual"] { color: var(--amber); }
+.adzan-jadwal__row label {
+  align-self: center;
+  cursor: pointer;
+}
+/* kolom jam: diketik sendiri, jadi tidak bergantung lokasi perangkat */
+.adzan-jadwal__input {
+  width: 96px;
+  min-height: 40px;
+  padding: 4px 10px;
+  font-family: var(--font-ui);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.adzan-jadwal__input:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+/* isian HH:MM: jaga tetap 5 karakter, jadi angka tidak meluber */
+.adzan-jadwal__input::placeholder { color: var(--text-dim); opacity: 0.6; }
+/* koreksi menit: untuk menyusun jadwal masjid yang beda dari standar nasional */
+.adzan-jadwal__koreksi-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.adzan-jadwal__koreksi {
+  width: 46px;
+  min-height: 34px;
+  padding: 2px 6px;
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+.adzan-jadwal__koreksi:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+/* hasil setelah koreksi: "14:29 +31 mnt → 15:00" */
+.adzan-jadwal__hasil {
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--amber);
+  white-space: nowrap;
+}
+.adzan-jadwal__satuan {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+.adzan-jadwal__aksi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
 .adzan-jadwal .hint { margin: 0; font-size: 0.82rem; }
 /* tombol & saklar diperbesar: dipakai sambil berdiri di ruang gelap */
 .console .btn--sm { min-height: 42px; }

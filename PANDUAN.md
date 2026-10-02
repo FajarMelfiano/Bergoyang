@@ -217,17 +217,64 @@ Panel DJ bisa **menjeda pemutaran otomatis saat adzan masuk**, dan
 melanjutkannya sendiri setelah selesai — cocok untuk acara yang menghormati
 waktu shalat.
 
-- Buka **Pengaturan acara → Adzan otomatis**, tekan **`Atur dari lokasi saya`**
-  (browser akan minta izin lokasi sekali). Jadwal harian (Subuh, Dzuhur,
-  Ashar, Maghrib, Isya) diambil otomatis dari aladhan.com sesuai lokasi acara.
+Ada tiga cara mendapatkan jadwal, dari yang paling pasti sampai yang paling rapuh. Panel selalu menampilkan **sumber jadwal yang sedang dipakai**, jadi
+tidak lagi ada "jadi ini jamnya benar atau bukan":
+
+1. **Ambil dari kota** (paling disarankan). Tulis kota atau kabupaten acara di
+   kolom **Kota atau kabupaten acara**, lalu tekan **`Ambil dari kota`**.
+   Jadwal diambil dari daftar 514 kota/kabupaten Indonesia dan **dihitung ulang
+   otomatis tiap ganti tanggal** — tidak ada hubungannya dengan lokasi HP.
+   Kalau nama kotanya ambigu (misal "Bandung" bisa berarti kota atau
+   kabupaten), panel menolistkan pilihan; ejaan salah seperti "jakrta" juga
+   diberi saran.
+   **Kalau masjidmu punya jadwal sendiri**, pakai kolom **koreksi (mnt)** di
+   sebelah kanan tiap salat: contoh Krian–Sidoarjo, jadwal standar nasional
+   menyebut Ashar 14:29 (Kompas/Tirto/Muslim Pro), sementara masjid membunyikan
+   adzan 15:00 — jadi Ashar diisi koreksi `+31`, dan panel menampilkan
+   `14:29 +31 mnt → 15:00`. Koreksi ikut terhitung ulang tiap hari, jadi tidak
+   perlu diubah tiap tanggal.
+2. **Simpan jam manual** (paling akurat). Kalau masjid punya jadwal cetak
+   sendiri, isi saja lima kolom jam (Subuh, Dzuhur, Ashar, Maghrib, Isya)
+   lalu tekan **`Simpan jam`**. Selama jam manual terisi, sumber lain diabaikan.
+   Perbedaan antar ormas (±8 menit untuk Subuh: Kemenag 20°, Muhammadiyah 18°)
+   baru bisa diselesaikan lewat cara ini.
+3. **Ambil dari lokasi HP** (paling rapuh). Jangan dipakai sebagai acuan:
+   koordinat HP bukan koordinat acara, dan itulah yang pernah membuat jam
+   meleset puluhan menit.
+
 - Atur **`Lama jeda adzan`** (menit, bawaan 10). Saat waktu masuk, pemutar
-  utama langsung **jeda**, muncul banner *“Sedang adzan …”* di panel dan
-  strip pemberitahuan di halaman tamu. Setelah jeda selesai, lagu
+  utama langsung **jeda**, muncul **popup “Jeda — Maghrib”** di panel (dapat
+  ditutup dengan `Kembali ke panel`, DJ tetap bisa managing antrean) dan band
+  pemberitahuan di halaman tamu. Setelah jeda selesai, lagu
   **dilanjutkan otomatis**.
 - Bisa dimatikan sementara lewat centang **`Aktifkan jeda adzan`** tanpa
   menghapus jadwal. Jadwal diperbarui otomatis setiap ganti tanggal.
 - Saat jeda adzan aktif, tombol pemutar sengaja **diblokir** (Putar berikutnya,
   Putar per baris, tombol spasi) agar tidak ada musik yang mengganggu adzan.
+
+### Auto-lanjut (sakelar di bawah tombol Hentikan)
+
+Ada sakelar **Auto-lanjut** di panel, tepat di bawah tombol
+**Putar berikutnya** dan **Hentikan**:
+
+- **Nyala** — lagu berikutnya diputar otomatis begitu lagu selesai, dan
+  **request baru yang masuk saat panel sedang idle ikut diputar otomatis**
+  (dalam ≤5 detik, biasanya seketika).
+- **Mati** — semuanya berhenti: tidak ada auto-lanjut, dan request baru
+  **tidak** diputar sampai DJ menekan **Putar berikutnya** atau menyalakan
+  sakelar lagi. Panel menampilkan catatan: *"Request ini menunggu…"*.
+- Tombol **Hentikan** mematikan sakelar ini. Kalau sakelar mati, DJ tetap bisa
+  menyalakannya kembali kapan saja tanpa harus memutar lagu.
+
+Dua hal yang otomatis terjadi tanpa perlu klik:
+
+1. Setelah menekan **Jadikan ini pemutar utama**, kalau antrean sudah berisi
+   dan belum ada yang diputar, lagu pertama **langsung bunyi**.
+2. Begitu ada request baru saat panel idle, langsung diputar — tidak perlu
+   menekan **Putar berikutnya**.
+
+Auto-play tetap hormat jeda adzan, dan hanya device yang memegang pemutar
+utama yang boleh memulainya.
 
 ### Tombol spasi = jeda/mainkan
 

@@ -262,6 +262,105 @@ function publicState() {
   };
 }
 
+/* ------------------------------------------------------------------
+   Jadwal adzan per kota (myquran.com) — lebih tepercaya daripada GPS
+   perangkat: koordinat HP bisa di luar lokasi acara, dan itu yang bikin
+   jam meleset. Daftar kota Indonesia diambil dari sana, sekali saja.
+   ------------------------------------------------------------------ */
+
+let cacheKota = { daftar: null, diambilPada: 0 };
+const UMUR_KOTA_MS = 12 * 60 * 60 * 1000; // 12 jam
+
+/** Ambil daftar kota/kabupaten Indonesia (id + nama) dari myquran. */
+async function ambilDaftarKota() {
+  if (cacheKota.daftar && Date.now() - cacheKota.diambilPada < UMUR_KOTA_MS) {
+    return cacheKota.daftar;
+  }
+  const res = await fetch('https://api.myquran.com/v2/sholat/kota/semua', {
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`myquran kota HTTP ${res.status}`);
+  const data = await res.json();
+  const daftar = (Array.isArray(data.data) ? data.data : [])
+    .map((k) => ({ id: String(k.id || ''), nama: String(k.lokasi || '').trim() }))
+    .filter((k) => k.id && k.nama);
+  if (!daftar.length) throw new Error('Daftar kota kosong');
+  cacheKota = { daftar, diambilPada: Date.now() };
+  return daftar;
+}
+
+/** Samakan disparate penulisan: "KAB. BOGOR" dan "bogor" harus ketemu. */
+function normalisasiKota(nama) {
+  return String(nama || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * Pecah nama kota jadi kata-kata yang sudah bersih. Harus dari nama mentah:
+ * normalisasiKota menghapus spasi, sehingga "KOTA JAKARTA" jadi satu gumpalan
+ * dan tidak bisa dipisahkan lagi.
+ */
+function kataKota(nama) {
+  return String(nama || '')
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .map((w) => normalisasiKota(w))
+    .filter(Boolean);
+}
+
+/**
+ * Cari kota dari teks yang diketik DJ.
+ * Urutan: persis → diawali → memuat → Similar. Kalau gagal, kembalikan
+ * saran supaya DJ tahu apa yang dimaksud (bukan "tidak ditemukan").
+ */
+async function cariKota(teks) {
+  const cari = normalisasiKota(teks);
+  if (!cari) return { ok: false, saran: [] };
+  const daftar = await ambilDaftarKota();
+
+  const persis = daftar.find((k) => normalisasiKota(k.nama) === cari);
+  if (persis) return { ok: true, kota: persis };
+
+  const diawali = daftar.find((k) => normalisasiKota(k.nama).startsWith(cari));
+  if (diawali) return { ok: true, kota: diawali };
+
+  const memuat = daftar.filter((k) => normalisasiKota(k.nama).includes(cari));
+  if (memuat.length === 1) return { ok: true, kota: memuat[0] };
+  if (memuat.length > 1) {
+    return { ok: false, saran: memuat.slice(0, 8).map((k) => k.nama) };
+  }
+
+  // Dua huruf depan teks sering tidak cocok dengan nama kota yang diawali
+  // "KOTA"/"KAB" — jadi lihat juga awal setiap kata di nama kota, dan zobraf
+  // tertukar huruf ("jakrta" -> "jakarta").
+  const awal = cari.slice(0, 3);
+  const huruf = cari.split('').slice().sort().join('');
+  const mirip = daftar.filter((k) => kataKota(k.nama).some((w) => w.length >= 3
+    && (w.startsWith(awal) || w.split('').sort().join('') === huruf))).slice(0, 8);
+  return { ok: false, saran: mirip.map((k) => k.nama) };
+}
+
+/** Jadwal salat satu kota untuk satu tanggal (myquran v1: /tahun/bulan/tanggal). */
+async function ambilJadwalKota(idKota, tanggal) {
+  const [tgl, bulan, tahun] = String(tanggal).split('-'); // "02-10-2026"
+  if (!tgl || !bulan || !tahun) throw new Error('Tanggal tidak valid');
+  // myquran v1 memakai urutan /tahun/bulan/tanggal (bukan urutan aslinya)
+  const u = `https://api.myquran.com/v1/sholat/jadwal/${encodeURIComponent(idKota)}`
+    + `/${encodeURIComponent(tahun)}/${encodeURIComponent(bulan)}/${encodeURIComponent(tgl)}`;
+  const res = await fetch(u, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`myquran jadwal HTTP ${res.status}`);
+  const data = await res.json();
+  const j = (data && data.data && data.data.jadwal) || null;
+  if (!j) throw new Error('Jadwal kota kosong');
+  const jadwal = {};
+  if (cekJamAdzan(j.subuh)) jadwal.Fajr = j.subuh;
+  if (cekJamAdzan(j.dzuhur)) jadwal.Dhuhr = j.dzuhur;
+  if (cekJamAdzan(j.ashar)) jadwal.Asr = j.ashar;
+  if (cekJamAdzan(j.maghrib)) jadwal.Maghrib = j.maghrib;
+  if (cekJamAdzan(j.isya)) jadwal.Isha = j.isya;
+  if (Object.keys(jadwal).length < 5) throw new Error('Jadwal kota tidak lengkap');
+  return { jadwal, lokasi: String(data.data.lokasi || '').trim() };
+}
+
 /* ---------------------------------------------------------------- helpers */
 
 const MIME = {
@@ -645,11 +744,80 @@ async function ambilJadwalAdzan(latitude, longitude, tanggal) {
   return jadwal;
 }
 
+/** Validasi jam "HH:MM" 24 jam (00:00 - 23:59). */
+function cekJamAdzan(jam) {
+  return typeof jam === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(jam.trim());
+}
+
+/**
+ * Susun jadwal manual dari body request. Hasil null berarti "kembali ke otomatis".
+ * Semua lima waktu wajib ada & valid — kalau tidak, kembalikan alasan gagalnya.
+ */
+function susunJadwalManual(body) {
+  if (body.jadwal === null) return { jadwal: null };            // hapus manual
+  const masuk = body.jadwal;
+  if (!masuk || typeof masuk !== 'object') return { jadwal: null, manual: true };
+  const jadwal = {};
+  for (const nama of ADZAN_WAKTU) {
+    const jam = String(masuk[nama] == null ? '' : masuk[nama]).trim();
+    if (!cekJamAdzan(jam)) {
+      return { jadwal: null, manual: true, error: `Jam ${nama} tidak valid (pakai format HH:MM).` };
+    }
+    jadwal[nama] = jam;
+  }
+  return { jadwal, manual: true };
+}
+
+/**
+ * Koreksi menit per salat. Jadwal standar Indonesia (Kompas/Tirto/Muslim Pro)
+ * belum tentu sama dengan jadwal cetak masjidmu — cara ini tinggal
+ * menumpuk koreksinya di atas jadwal kota, jadi tetap ikut berubah tiap hari.
+ */
+function susunKoreksi(body) {
+  if (Object.prototype.hasOwnProperty.call(body, 'koreksi') && body.koreksi === null) {
+    return { ada: true, koreksi: null };
+  }
+  const m = body.koreksi;
+  if (!m || typeof m !== 'object') return { ada: false };
+  const out = {};
+  for (const nama of ADZAN_WAKTU) {
+    const n = Math.round(Number(m[nama] == null ? 0 : m[nama]));
+    if (!Number.isFinite(n) || Math.abs(n) > 120) {
+      return { ada: true, koreksi: null, error: `Koreksi ${nama} harus angka antara -120 dan 120 menit.` };
+    }
+    out[nama] = n;
+  }
+  return { ada: true, koreksi: out };
+}
+
+/** Geser setiap jam sebesar koreksinya (memutar lewat tengah malam bila perlu). */
+function terapkanKoreksi(jadwal, koreksi) {
+  if (!jadwal) return null;
+  if (!koreksi) return jadwal;
+  const out = {};
+  for (const nama of ADZAN_WAKTU) {
+    const jam = jadwal[nama];
+    if (!jam) continue;
+    const geser = Math.round(Number(koreksi[nama]) || 0);
+    const total = (Number(String(jam).slice(0, 2)) * 60 + Number(String(jam).slice(3)) + geser + 1440) % 1440;
+    out[nama] = `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  }
+  return out;
+}
+
 /** Simpan jadwal satu tanggal (cache ringan, maks 3 tanggal terakhir). */
 function simpanJadwalAdzan(tanggal, jadwal) {
   if (!state.adzan) state.adzan = { enabled: true, durasi: 10 };
   const semua = { ...(state.adzan.jadwal || {}), [tanggal]: jadwal };
-  const keys = Object.keys(semua).sort().reverse().slice(0, 3);
+  // "DD-MM-YYYY" tidak bisa diurutkan sebagai teks (15-09 > 02-10 secara abjad),
+  // jadi urutkan berdasarkan tanggal sebenarnya supaya cache terbaru tidak terbuang.
+  const urut = (t) => {
+    const [d, bln, th] = String(t).split('-').map(Number);
+    return Number.isFinite(d) && Number.isFinite(bln) && Number.isFinite(th)
+      ? th * 10000 + bln * 100 + d
+      : 0;
+  };
+  const keys = Object.keys(semua).sort((a, b) => urut(b) - urut(a)).slice(0, 3);
   state.adzan.jadwal = {};
   for (const k of keys) state.adzan.jadwal[k] = semua[k];
 }
@@ -903,28 +1071,116 @@ async function handleApi(req, res, url) {
     if (method !== 'GET') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
     const a = state.adzan;
     const tanggal = cekTanggal(clean(url.searchParams.get('tanggal'), 20)) || tanggalLocal();
-    if (!a || !a.lat) return sendJson(res, 200, {
+
+    // Jam yang diketik DJ selalu menang. Lokasi browser sering tidak sesuai
+    // dengan lokasi acara, jadi hasil geolokasi tidak boleh menimpa pilihan itu.
+    const manual = a && a.jadwalManual;
+    if (manual && ADZAN_WAKTU.every((n) => cekJamAdzan(manual[n]))) {
+      return sendJson(res, 200, {
+        jadwal: Object.fromEntries(ADZAN_WAKTU.map((n) => [n, String(manual[n]).trim()])),
+        jadwalPokok: Object.fromEntries(ADZAN_WAKTU.map((n) => [n, String(manual[n]).trim()])),
+        sumber: 'manual',
+        kotaNama: a.kotaNama || null,
+        koreksi: a.koreksi || null,
+        durasi: Number.isFinite(a.durasi) ? a.durasi : 10,
+        enabled: Boolean(a.enabled),
+      });
+    }
+
+    if (!a) return sendJson(res, 200, {
       jadwal: null,
-      durasi: a && Number.isFinite(a.durasi) ? a.durasi : 10,
-      enabled: Boolean(a && a.enabled),
+      sumber: null,
+      durasi: 10,
+      enabled: true,
     });
-    if (!a.jadwal || !a.jadwal[tanggal]) {
+
+    // Urutan sumber: jam manual > kota acara > lokasi perangkat.
+    const sudahAda = Boolean(a.jadwal && a.jadwal[tanggal]);
+    if (!sudahAda) {
       try {
-        const jadwal = await ambilJadwalAdzan(a.lat, a.lng, tanggal);
-        mutate(() => simpanJadwalAdzan(tanggal, jadwal));
+        if (a.kotaId) {
+          // kota acara: akurat, dan ikut ter-refresh sendiri tiap ganti tanggal
+          const hasil = await ambilJadwalKota(a.kotaId, tanggal);
+          mutate(() => simpanJadwalAdzan(tanggal, hasil.jadwal));
+        } else if (a.lat) {
+          const jadwal = await ambilJadwalAdzan(a.lat, a.lng, tanggal);
+          mutate(() => simpanJadwalAdzan(tanggal, jadwal));
+        }
       } catch {
+        const cadangan = (state.adzan && state.adzan.jadwal) || null;
         return sendJson(res, 200, {
-          jadwal: (a.jadwal && Object.values(a.jadwal)[0]) || null,
-          durasi: a.durasi,
-          enabled: a.enabled,
+          jadwal: (cadangan && Object.values(cadangan)[0]) || null,
+          sumber: a.kotaId ? 'kota' : (a.lat ? 'lokasi' : null),
+          kotaNama: a.kotaNama || null,
+          durasi: state.adzan.durasi,
+          enabled: state.adzan.enabled,
           error: 'Gagal mengambil jadwal adzan. Coba lagi nanti.',
         });
       }
     }
+
+    const sumber = a.kotaId ? 'kota' : (a.lat ? 'lokasi' : null);
+    const mentah = (state.adzan && state.adzan.jadwal && state.adzan.jadwal[tanggal]) || null;
     return sendJson(res, 200, {
-      jadwal: (state.adzan.jadwal && state.adzan.jadwal[tanggal]) || null,
-      durasi: a.durasi,
-      enabled: a.enabled,
+      jadwal: terapkanKoreksi(mentah, a.koreksi),
+      jadwalPokok: mentah,
+      sumber,
+      kotaNama: a.kotaNama || null,
+      koreksi: a.koreksi || null,
+      durasi: state.adzan.durasi,
+      enabled: state.adzan.enabled,
+    });
+  }
+
+  /* Atur jadwal dari kota/kabupaten acara (bukan dari lokasi perangkat). */
+  if (p === '/api/adzan/kota') {
+    if (method !== 'POST') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
+    const sesi = adminSesi(req);
+    if (!sesi) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+    const body = await readBody(req);
+    const tanggal = cekTanggal(clean(body.tanggal, 20)) || tanggalLocal();
+
+    let hasilCari;
+    try {
+      hasilCari = await cariKota(clean(body.kota, 80));
+    } catch {
+      return sendJson(res, 502, { error: 'Gagal membaca daftar kota. Periksa internet server.' });
+    }
+    if (!hasilCari.ok) {
+      return sendJson(res, 404, {
+        error: hasilCari.saran.length
+          ? `Kota "${clean(body.kota, 40)}" tidak ada. Maksudmu salah satu ini?`
+          : `Kota "${clean(body.kota, 40)}" tidak ditemukan.`,
+        saran: hasilCari.saran,
+      });
+    }
+
+    let hasil;
+    try {
+      hasil = await ambilJadwalKota(hasilCari.kota.id, tanggal);
+    } catch {
+      return sendJson(res, 502, { error: 'Gagal mengambil jadwal dari sumber jadwal. Coba lagi.' });
+    }
+
+    const durasi = Math.min(Math.max(Number(body.durasi) || (state.adzan && state.adzan.durasi) || 10, 1), 60);
+    mutate(() => {
+      if (!state.adzan) state.adzan = { enabled: true, durasi };
+      state.adzan.kotaId = hasilCari.kota.id;
+      state.adzan.kotaNama = hasil.lokasi || hasilCari.kota.nama;
+      state.adzan.durasi = durasi;
+      if (body.enabled !== undefined) state.adzan.enabled = Boolean(body.enabled);
+      simpanJadwalAdzan(tanggal, hasil.jadwal);
+    });
+    return sendJson(res, 200, {
+      ok: true,
+      kota: state.adzan.kotaNama,
+      kotaId: state.adzan.kotaId,
+      jadwal: state.adzan.jadwalManual ? state.adzan.jadwalManual : terapkanKoreksi(hasil.jadwal, state.adzan.koreksi),
+      jadwalPokok: state.adzan.jadwalManual ? state.adzan.jadwalManual : hasil.jadwal,
+      sumber: state.adzan.jadwalManual ? 'manual' : 'kota',
+      koreksi: state.adzan.koreksi || null,
+      durasi: state.adzan.durasi,
+      enabled: state.adzan.enabled,
     });
   }
 
@@ -955,7 +1211,17 @@ async function handleApi(req, res, url) {
       if (body.enabled !== undefined) state.adzan.enabled = Boolean(body.enabled);
       simpanJadwalAdzan(tanggal, jadwal);
     });
-    return sendJson(res, 200, { jadwal, lat, lng, durasi: state.adzan.durasi, enabled: state.adzan.enabled });
+    const masihManual = Boolean(state.adzan.jadwalManual);
+    return sendJson(res, 200, {
+      jadwal: masihManual ? state.adzan.jadwalManual : jadwal,
+      sumber: masihManual ? 'manual' : 'lokasi',
+      lat, lng,
+      durasi: state.adzan.durasi,
+      enabled: state.adzan.enabled,
+      catatan: masihManual
+        ? 'Lokasi tersimpan, tapi jam yang dipakai tetap yang diketik manual.'
+        : '',
+    });
   }
 
   if (p === '/api/adzan/pengaturan') {
@@ -963,6 +1229,29 @@ async function handleApi(req, res, url) {
     const sesi = adminSesi(req);
     if (!sesi) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
     const body = await readBody(req);
+
+    // koreksi menit per salat (hanya berlaku untuk jadwal dari kota/lokasi)
+    const hasilKoreksi = susunKoreksi(body);
+    if (hasilKoreksi.error) return sendJson(res, 400, { error: hasilKoreksi.error });
+    if (hasilKoreksi.ada) {
+      mutate(() => {
+        if (!state.adzan) state.adzan = { enabled: true, durasi: 10 };
+        if (hasilKoreksi.koreksi === null) delete state.adzan.koreksi;
+        else state.adzan.koreksi = hasilKoreksi.koreksi;
+      });
+    }
+
+    // jam manual: null = kembali ke jadwal dari lokasi
+    if (Object.prototype.hasOwnProperty.call(body, 'jadwal')) {
+      const hasil = susunJadwalManual(body);
+      if (hasil.error) return sendJson(res, 400, { error: hasil.error });
+      mutate(() => {
+        if (!state.adzan) state.adzan = { enabled: true, durasi: 10 };
+        if (hasil.jadwal === null) delete state.adzan.jadwalManual;
+        else state.adzan.jadwalManual = hasil.jadwal;
+      });
+    }
+
     mutate(() => {
       if (!state.adzan) state.adzan = { enabled: true, durasi: 10 };
       if (body.durasi !== undefined && body.durasi !== null && body.durasi !== '') {
@@ -971,7 +1260,16 @@ async function handleApi(req, res, url) {
       }
       if (body.enabled !== undefined) state.adzan.enabled = Boolean(body.enabled);
     });
-    return sendJson(res, 200, { ok: true, durasi: state.adzan.durasi, enabled: state.adzan.enabled });
+    const aktifManual = Boolean(state.adzan.jadwalManual);
+    return sendJson(res, 200, {
+      ok: true,
+      jadwal: aktifManual ? state.adzan.jadwalManual : null,
+      sumber: aktifManual ? 'manual' : (state.adzan.kotaId ? 'kota' : (state.adzan.lat ? 'lokasi' : null)),
+      kotaNama: state.adzan.kotaNama || null,
+      koreksi: state.adzan.koreksi || null,
+      durasi: state.adzan.durasi,
+      enabled: state.adzan.enabled,
+    });
   }
 
   /* --- khusus DJ --- */
