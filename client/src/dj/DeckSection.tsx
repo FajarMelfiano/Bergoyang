@@ -159,6 +159,7 @@ export function DeckSection({ state, token, engine, toast }: DeckSectionProps) {
           />
           <CircleVisualizer
             analyser={ui.analyserReady ? engine.analyser() : null}
+            beat={state.beat}
             coverUrl={playing?.yt ? `https://i.ytimg.com/vi/${playing.yt}/hqdefault.jpg` : null}
             playing={Boolean(playing)}
             label={ui.bpm ? String(ui.bpm) : playing ? 'LIVE' : ''}
@@ -187,7 +188,7 @@ export function DeckSection({ state, token, engine, toast }: DeckSectionProps) {
           </span>
           <span className="absolute bottom-3 left-3 z-20 rounded-full bg-[#0e0e0e]/90 px-3 py-1 font-mono text-[11px] font-bold shadow-md backdrop-blur-md">
             <span className="text-primary">BPM</span>{' '}
-            <span className="text-on-surface">{ui.bpm ?? '—'}</span>
+            <span className="text-on-surface">{ui.bpm ?? (playing ? 120 : '—')}</span>
           </span>
           <span className="absolute bottom-3 right-3 z-20 rounded-full bg-primary px-2.5 py-1 font-mono text-[11px] font-bold tracking-wider text-black shadow-md">
             AVEE • CH-01

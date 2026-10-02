@@ -80,7 +80,7 @@ export function Hero({ state, adzan, beat = null }: HeroProps) {
 
   return (
     <section className="w-full bg-gradient-to-b from-[#25382b] via-[#1c1b1b] to-[#131313] px-4 pb-6 pt-4 sm:px-8">
-      <div className="mx-auto flex w-full max-w-[1360px] flex-col gap-6">
+      <div className="flex w-full flex-col gap-6">
         {/* sub-bar: konteks venue + status */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="inline-flex items-center gap-2 rounded-full bg-surface-4/60 px-4 py-1.5 backdrop-blur-md">
@@ -115,17 +115,37 @@ export function Hero({ state, adzan, beat = null }: HeroProps) {
         <div className="flex flex-col items-center gap-7 pt-2 sm:flex-row sm:items-end sm:gap-10">
           {/* frame sampul */}
           <div className="relative size-56 shrink-0 overflow-hidden rounded-xl bg-[#0e0e0e] shadow-[0_20px_40px_-15px_rgba(0,0,0,0.85),0_6px_16px_rgba(0,0,0,0.6)] md:size-[232px]">
-            <CircleVisualizer
-              coverUrl={coverUrl}
-              playing={Boolean(playing)}
-              beat={beatSegar}
-              label={playing ? 'LIVE' : ''}
-              className="w-full"
-            />
+            {coverUrl ? (
+              <img
+                src={coverUrl}
+                alt={playing ? `Sampul ${playing.title}` : ''}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <CircleVisualizer
+                coverUrl={coverUrl}
+                playing={Boolean(playing)}
+                beat={beatSegar}
+                label={playing ? 'LIVE' : ''}
+                className="w-full"
+              />
+            )}
             <div
               aria-hidden
               className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60"
             />
+            {live && beatSegar?.bpm ? (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-primary/45 via-primary/8 to-transparent"
+                style={
+                  {
+                    animation: `beat-glow ${(60 / beatSegar.bpm).toFixed(3)}s cubic-bezier(.22,1,.36,1) infinite`,
+                    '--amp': String(Math.max(0, Math.min(1, beatSegar.energy || 0))),
+                  } as React.CSSProperties
+                }
+              />
+            ) : null}
           </div>
 
           {/* metadata */}

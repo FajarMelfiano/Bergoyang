@@ -77,7 +77,7 @@ export function QueuePanel({ state }: QueuePanelProps) {
       {jumlahBaris === 0 ? (
         <EmptyState title="Antrean kosong" hint="Jadi yang pertama minta lagu." />
       ) : (
-        <div className="flex w-full flex-col">
+        <div className="scroll-thin flex max-h-[65vh] w-full flex-col overflow-y-auto lg:max-h-[calc(100dvh-260px)]">
           {/* kepala tabel */}
           <div className="mb-2 grid select-none grid-cols-12 items-center gap-3 border-b border-surface-4 px-4 pb-2 text-[11px] font-semibold uppercase tracking-wider text-on-surface-variant">
             <div className="col-span-1 text-center">#</div>
@@ -183,7 +183,8 @@ function QueueRow({
   const rejected = track.status === 'rejected';
   const isPlaying = track.status === 'playing';
   const pending = track.status === 'pending';
-  const bisaVote = track.status === 'queued' || pending;
+  // server hanya menerima vote untuk lagu berstatus queued (lihat POST /api/vote)
+  const bisaVote = track.status === 'queued';
   const voted = Boolean(track.votes && track.votes[deviceId]);
   const jumlahVote = Object.keys(track.votes || {}).length;
   const cover = track.yt ? `https://i.ytimg.com/vi/${track.yt}/default.jpg` : null;

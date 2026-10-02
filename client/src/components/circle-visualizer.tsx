@@ -47,7 +47,7 @@ export function CircleVisualizer({
     angle: 0,
     pulse: 0,
     lastFrame: 0,
-    lastBeatT: 0,
+    lastBeatKey: null as number | null,
     nextBeatAt: 0,
     img: null as HTMLImageElement | null,
     imgUrl: '' as string,
@@ -60,6 +60,7 @@ export function CircleVisualizer({
       kick: 0,
     })),
     freq: null as Uint8Array<ArrayBuffer> | null,
+    silentFor: 0,
     reduced: false,
   });
 
@@ -101,36 +102,58 @@ export function CircleVisualizer({
       let energy = 0;
       const values = s.values;
 
-      if (p.analyser) {
+      // baca spektrum sekali; kalau analyser senyap >0.8s sementara beat
+      // server masih datang (YouTube iframe tanpa capture, dsb.) → jatuh ke
+      // mode beat-grid supaya beat tetap hidup di semua halaman
+      let modeSpektrum = Boolean(p.analyser);
+      if (p.analyser && modeSpektrum) {
         const bins = p.analyser.frequencyBinCount;
         if (!s.freq || s.freq.length !== bins) s.freq = new Uint8Array(bins);
         p.analyser.getByteFrequencyData(s.freq);
+        let sum = 0;
+        for (let i = 0; i < bins; i += 4) sum += s.freq[i] ?? 0;
+        s.silentFor = sum > 0 ? 0 : s.silentFor + dt;
+        if (s.silentFor > 0.8 && p.beat && p.beat.playing) modeSpektrum = false;
+      }
+
+      if (p.analyser && modeSpektrum) {
+        const bins = p.analyser.frequencyBinCount;
         let bass = 0;
-        for (let i = 1; i <= 6 && i < bins; i++) bass += s.freq[i] ?? 0;
+        for (let i = 1; i <= 6 && i < bins; i++) bass += s.freq?.[i] ?? 0;
         bass = bass / (6 * 255);
         energy = bass;
         for (let i = 0; i < N_BARS; i++) {
           // sebaran log ke bawah spektrum — bass di bawah, treble di atas
           const frac = i / (N_BARS - 1);
           const bin = Math.min(bins - 1, 1 + Math.floor(Math.pow(frac, 1.6) * (bins - 2)));
-          values[i] = ((s.freq[bin] ?? 0) / 255) * (1 - frac * 0.35);
+          values[i] = ((s.freq?.[bin] ?? 0) / 255) * (1 - frac * 0.35);
         }
         s.pulse = Math.max(s.pulse * Math.pow(0.001, dt), bass > 0.34 ? bass : s.pulse * 0.92);
       } else {
-        /* beat-grid: pulse di tiap paket baru (t berubah), prediksi di antaranya */
+        /* beat-grid: pulse diumpan tempo (beatIdx / interval BPM) tapi
+           AMPLITUDE-nya diikat ke loudness — nada tenang → denyut halus,
+           nada tinggi → brutal. energy juga menggerakkan bar & aura. */
         if (p.beat && p.beat.playing) {
           const interval = p.beat.bpm ? 60000 / p.beat.bpm : 1000;
-          if (p.beat.t !== s.lastBeatT) {
-            s.lastBeatT = p.beat.t;
-            s.pulse = 1;
-            s.nextBeatAt = now + interval;
+          const loud = Math.max(0, Math.min(1, p.beat.energy));
+          const beatAmp = 0.12 + 0.88 * loud;
+          const bi = p.beat.beatIdx;
+          if (bi !== undefined && bi !== null) {
+            if (s.lastBeatKey !== bi) {
+              s.lastBeatKey = bi;
+              s.pulse = beatAmp;
+              s.nextBeatAt = now + interval;
+            } else if (now >= s.nextBeatAt) {
+              s.pulse = beatAmp;
+              s.nextBeatAt += interval;
+            }
           } else if (now >= s.nextBeatAt) {
-            s.pulse = 1;
+            s.pulse = beatAmp;
             s.nextBeatAt += interval;
           }
           energy = p.beat.energy;
         } else {
-          s.lastBeatT = 0;
+          s.lastBeatKey = null;
         }
         const amp = p.playing ? 1 : 0.35;
         const t = now / 1000;

@@ -60,6 +60,8 @@ export interface BeatInfo {
   dur: number;
   bpm: number | null;
   energy: number;
+  /** indeks beat global (floor(pos / 60bpm)) — pemicu denyut; null = pakai t */
+  beatIdx?: number | null;
   playing: boolean;
   trackId: string | null;
   t: number;

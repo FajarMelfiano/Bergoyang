@@ -191,7 +191,8 @@ export function DjApp() {
 function BeatGlow({ beat }: { beat: AppState['beat'] }) {
   const on = Boolean(beat?.playing && beat.bpm && beat.bpm > 0);
   const dur = on && beat?.bpm ? 60 / beat.bpm : 0;
-  const amp = Math.max(0, Math.min(1, beat?.energy ?? 0.4));
+  // amp = loudness nyata (0 = senyap → glow meredup; 1 = keras → glow penuh)
+  const amp = Math.max(0, Math.min(1, beat?.energy ?? 0));
 
   if (!on) {
     return (

@@ -133,7 +133,15 @@ export const djSetAuto = (token: string, enabled: boolean) =>
 /** payload beat-grid dari panel DJ (server menambahkan `t` sendiri) */
 export const djBeat = (
   token: string,
-  payload: { pos: number; dur: number; bpm: number | null; energy: number; playing: boolean; trackId: string | null },
+  payload: {
+    pos: number;
+    dur: number;
+    bpm: number | null;
+    energy: number;
+    beatIdx?: number | null;
+    playing: boolean;
+    trackId: string | null;
+  },
 ) => apiSend('POST', '/api/dj/beat', payload, token);
 
 export const djClearDone = (token: string) => apiSend('POST', '/api/dj/clear-done', {}, token);

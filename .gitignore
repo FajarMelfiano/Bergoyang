@@ -17,3 +17,5 @@ skills-lock.json
 .build-check/
 .playwright-mcp/
 .opencode/
+test-results/
+playwright-report/

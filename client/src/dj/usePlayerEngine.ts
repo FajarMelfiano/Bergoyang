@@ -764,7 +764,11 @@ export function usePlayerEngine(deps: PlayerEngineDeps): PlayerEngine {
       if (!buf) return;
       buf[rmsIdx.current % N] = rms;
       rmsIdx.current += 1;
-      energyRef.current = energyRef.current * 0.88 + Math.min(1, rms * 3.5) * 0.12;
+      // energy = loudness sesungguhnya (0 diam → 1 keras): attack cepat
+      // supaya dentum terasa, release lambat supaya meredap mengikuti nada
+      const target = Math.min(1, rms * 4);
+      const k = target > energyRef.current ? 0.45 : 0.06;
+      energyRef.current += (target - energyRef.current) * k;
     }, 1000 / SAMPLE);
     return () => window.clearInterval(tick);
   }, []);
@@ -873,6 +877,7 @@ export function usePlayerEngine(deps: PlayerEngineDeps): PlayerEngine {
             dur: 0,
             bpm: bpmRef.current,
             energy: 0,
+            beatIdx: null,
             playing: false,
             trackId: playingTrack ? playingTrack.id : null,
           }).catch(() => {});
@@ -880,17 +885,36 @@ export function usePlayerEngine(deps: PlayerEngineDeps): PlayerEngine {
         return;
       }
 
-      const now = Date.now();
-      const beatLen = bpmRef.current ? 60 / bpmRef.current : 1;
+      // kirim tiap tick (250 ms): energy segar mengikuti dinamika nada,
+      // beatIdx jadi pemicu denyut di klien (tempo tetap akurat).
+      // Universal: tanpa analisis audio (YouTube iframe tanpa capture, capture
+      // dibatalkan, dsb.) beat TETAP berjalan — tempo default 120 BPM + envelope
+      // per beat. Saat analisis nyata aktif (capture tab / mp3 lokal) memakai
+      // BPM terdeteksi + loudness asli dari audio.
+      const bpmKirim = bpmRef.current ?? 120;
+      const beatLen = 60 / bpmKirim;
       const beatIdx = Math.floor(pos / beatLen);
-      const keepalive = bpmRef.current ? Math.max(1500, beatLen * 1500) : 1000;
-      if (beatIdx === prev.beatIdx && now - prev.t < keepalive) return;
-      lastBeat.current = { kirim: true, beatIdx, t: now };
+      const audioLokalMain = Boolean(
+        audio && audio.src && !audio.paused && audio.readyState >= 2,
+      );
+      const analisisNyata =
+        (Boolean(capStream.current) || audioLokalMain) &&
+        audioCtx.current?.state === 'running';
+      let energy: number;
+      if (analisisNyata) {
+        energy = energyRef.current;
+      } else {
+        // envelope per beat: puncak tepat di beat, meredap menjelang berikutnya
+        const phase = (pos % beatLen) / beatLen;
+        energy = 0.28 + 0.5 * Math.pow(1 - phase, 2);
+      }
+      lastBeat.current = { kirim: true, beatIdx, t: Date.now() };
       void djBeat(tok, {
         pos,
         dur,
-        bpm: bpmRef.current,
-        energy: energyRef.current,
+        bpm: bpmKirim,
+        energy,
+        beatIdx,
         playing: true,
         trackId: playingTrack.id,
       }).catch(() => {});

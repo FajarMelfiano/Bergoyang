@@ -212,19 +212,21 @@
   animation-delay: 0.36s;
 }
 
-/* denyut gradasi glow mengikuti tempo lagu (durasi di-set inline per BPM) */
+/* denyut gradasi glow mengikuti tempo lagu (durasi inline per BPM);
+   amplitudo (--amp = loudness 0..1): nada tenang → redup & tak membesar,
+   nada tinggi → terang & scale membesar */
 @keyframes beat-glow {
   0%,
   100% {
-    opacity: calc(0.22 + var(--amp, 0.4) * 0.3);
+    opacity: calc(0.16 + var(--amp, 0) * 0.34);
     transform: scale(1);
   }
   12% {
-    opacity: calc(0.45 + var(--amp, 0.4) * 0.55);
-    transform: scale(1.03);
+    opacity: calc(0.32 + var(--amp, 0) * 0.68);
+    transform: scale(calc(1 + var(--amp, 0) * 0.05));
   }
   55% {
-    opacity: calc(0.28 + var(--amp, 0.4) * 0.35);
+    opacity: calc(0.2 + var(--amp, 0) * 0.4);
     transform: scale(1.005);
   }
 }

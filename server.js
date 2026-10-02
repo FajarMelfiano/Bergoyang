@@ -1052,11 +1052,16 @@ async function handleApi(req, res, url) {
         : null;
       const energyRaw = Number(body.energy);
       const energy = Number.isFinite(energyRaw) ? Math.min(Math.max(energyRaw, 0), 1) : 0;
+      const idxRaw = Number(body.beatIdx);
+      const beatIdx = Number.isFinite(idxRaw)
+        ? Math.min(Math.max(Math.trunc(idxRaw), -1), 1000000)
+        : null;
       broadcastBeat({
         pos: Number.isFinite(pos) ? Math.min(Math.max(pos, 0), 86400) : 0,
         dur: Number.isFinite(dur) ? Math.min(Math.max(dur, 0), 86400) : 0,
         bpm,
         energy,
+        beatIdx,
         playing: Boolean(body.playing),
         trackId: clean(String(body.trackId || ''), 40) || null,
         t: Date.now(),

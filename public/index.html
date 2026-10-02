@@ -1,165 +1,25 @@
 <!DOCTYPE html>
-<html lang="id">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Request Lagu Live</title>
-  <meta name="description" content="Kirim request lagu dari HP kamu, DJ akan memutarnya." />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/styles.css" />
-  <link rel="stylesheet" href="/guest.css" />
-</head>
-<body data-auth="false">
-  <header class="topbar">
-    <span class="brand" id="brand">Request Lagu Live</span>
-    <span class="live-badge" id="liveBadge" data-open="true">
-      <span class="live-dot" aria-hidden="true"></span>
-      <span id="liveText">Request dibuka</span>
-    </span>
-    <a class="topbar-link" href="/dj">Panel DJ</a>
-
-    <details class="guser" id="guestMenu" hidden>
-      <summary class="guser__trigger">
-        <span id="guestChip"></span>
-        <svg class="guser__caret" width="12" height="8" viewBox="0 0 12 8" aria-hidden="true" focusable="false">
-          <path d="M1 1.5 6 6.5 11 1.5" fill="none" stroke="currentColor" stroke-width="1.8"
-                stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-      </summary>
-      <div class="guser__panel">
-        <p class="guser__title">Ganti password saya</p>
-        <form id="passForm">
-          <div class="field">
-            <label for="passLama">Password lama</label>
-            <input id="passLama" type="password" autocomplete="current-password" required />
-          </div>
-          <div class="field">
-            <label for="passBaru">Password baru</label>
-            <input id="passBaru" type="password" autocomplete="new-password" minlength="6"
-                   required placeholder="minimal 6 karakter" />
-          </div>
-          <div class="field">
-            <label for="passBaru2">Ulangi password baru</label>
-            <input id="passBaru2" type="password" autocomplete="new-password" minlength="6" required />
-          </div>
-          <button class="btn btn--primary btn--block" type="submit">Ganti password</button>
-          <p class="form-note" id="passNote" role="alert"></p>
-        </form>
-        <div class="guser__sep" aria-hidden="true"></div>
-        <button class="btn btn--ghost btn--block" id="logoutBtn" type="button">Keluar</button>
-      </div>
-    </details>
-  </header>
-
-  <!-- GERBANG LOGIN: hanya panitia terdaftar yang bisa request -->
-  <div class="gate" id="loginGate" hidden>
-    <p class="sr-only">Halaman privat — masuk dulu untuk kirim request.</p>
-  </div>
-
-  <section class="hero">
-    <div class="adzan-strip" id="adzanStrip" hidden role="status">
-      <span class="adzan-strip__dot" aria-hidden="true"></span>
-      <span id="adzanStripText">Sedang adzan — pemutaran lanjut otomatis setelah selesai</span>
-    </div>
-    <h1 id="eventName">Request Lagu Live</h1>
-    <p class="hero-tag" id="eventTagline">Kirim lagu, tunggu giliran, langsung diputar.</p>
-    <div class="hero-stats">
-      <div class="stat"><b id="statQueued">0</b><span>Di antrean</span></div>
-      <div class="stat"><b id="statPlayed">0</b><span>Sudah diputar</span></div>
-      <div class="stat"><b id="statWaiting">0</b><span>Menunggu</span></div>
-    </div>
-  </section>
-
-  <main class="layout" id="main">
-    <!-- Kolom kiri: sebelum masuk, yang tampil kartu masuk; sesudah masuk,
-         slip request. Satu kolom, ditukar otomatis lewat body[data-auth]. -->
-    <div class="layout__form">
-      <form class="form-slip" id="loginForm" novalidate>
-        <h2>Masuk dulu</h2>
-        <p class="hint" id="loginGateHint">Halaman ini privat — hanya panitia terdaftar yang bisa kirim request. Masuk pakai username &amp; password kamu.</p>
-        <div class="field">
-          <label for="loginUser">Username</label>
-          <input id="loginUser" name="username" autocomplete="username" autocapitalize="off"
-                 spellcheck="false" required placeholder="username kamu" />
-        </div>
-        <div class="field">
-          <label for="loginPass">Password</label>
-          <input id="loginPass" type="password" autocomplete="current-password" required placeholder="password kamu" />
-        </div>
-        <button class="btn btn--primary" type="submit">Masuk</button>
-        <p class="form-note" id="loginNote" role="alert"></p>
-      </form>
-
-      <form class="form-slip" id="requestForm" novalidate>
-        <h2>Slip request</h2>
-        <p class="hint" id="formHint">Ketik judul — semua lagu di YouTube bisa dicari. Urutan antrean mengikuti vote tertinggi.</p>
-
-        <div class="field">
-          <label for="title">Judul lagu</label>
-          <input id="title" name="title" type="text" autocomplete="off" maxlength="120"
-                 placeholder="misal: Hati-Hati di Jalan" required
-                 aria-describedby="titleHelp" />
-          <ul class="results" id="results" role="listbox" aria-label="Hasil pencarian lagu"></ul>
-          <div class="detect" id="detect" hidden></div>
-          <p class="sr-only" id="titleHelp">Pilih dari hasil pencarian atau ketik judul sendiri.</p>
-        </div>
-
-        <div class="field">
-          <label for="artist">Artis <span style="font-weight:400;text-transform:none">(opsional)</span></label>
-          <input id="artist" name="artist" type="text" autocomplete="off" maxlength="120" placeholder="misal: Tulus" />
-        </div>
-
-        <div class="field" id="sourceField">
-          <label for="source">Link YouTube <span style="font-weight:400;text-transform:none">(opsional)</span></label>
-          <input id="source" name="source" type="url" inputmode="url" maxlength="300"
-                 placeholder="kosongkan — server cari sumbernya otomatis dari judul" />
-        </div>
-
-        <div class="field">
-          <label for="requester">Nama kamu</label>
-          <input id="requester" name="requester" type="text" autocomplete="username" maxlength="40" readonly aria-describedby="requesterNote" />
-          <p class="form-note" id="requesterNote">Otomatis diisi dari username akun kamu.</p>
-        </div>
-
-        <div class="field" id="messageField">
-          <label for="message">Pesan untuk DJ <span style="font-weight:400;text-transform:none">(opsional)</span></label>
-          <textarea id="message" name="message" maxlength="240" placeholder="misal: untuk yang lagi di jalan, jangan lupa makan"></textarea>
-        </div>
-
-        <button class="btn btn--primary" type="submit" id="submitBtn">Kirim ke antrean</button>
-        <p class="form-note" id="formNote" role="status" aria-live="polite"></p>
-      </form>
-    </div>
-
-    <!-- ANTREAN -->
-    <div class="layout__queue">
-      <section class="queue" aria-labelledby="playingTitle">
-        <h2 class="section-title" id="playingTitle">Sedang diputar</h2>
-        <div id="nowPlaying"></div>
-      </section>
-
-      <section class="queue" aria-labelledby="queueTitle" style="margin-top:30px">
-        <h2 class="section-title" id="queueTitle">Antrean <small id="queueCount">0 lagu</small></h2>
-        <p class="hint hint--tight">Urutan mengikuti vote tertinggi — berubah real-time, sama dengan yang diputar di YouTube Music.</p>
-        <div id="queue"></div>
-      </section>
-
-      <details class="done-list" id="doneWrap" hidden>
-        <summary id="doneSummary">Sudah diputar (0)</summary>
-        <div id="doneList" style="margin-top:12px"></div>
-      </details>
-    </div>
-  </main>
-
-  <footer class="footer">
-    <span id="footerName">Request Lagu Live</span>
-    <span>Tersambung: <strong id="connState">memuat…</strong></span>
-  </footer>
-
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
-  <script src="/guest.js" defer></script>
-</body>
+<html lang="id" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Request Lagu Live</title>
+    <meta name="description" content="Kirim request lagu dari HP kamu, DJ akan memutarnya." />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23121212'/%3E%3Crect x='7' y='12' width='4' height='10' rx='2' fill='%231ed760'/%3E%3Crect x='14' y='7' width='4' height='18' rx='2' fill='%231ed760'/%3E%3Crect x='21' y='10' width='4' height='14' rx='2' fill='%231ed760'/%3E%3C/svg%3E"
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Grand+Hotel&display=swap"
+      rel="stylesheet"
+    />
+    <script type="module" crossorigin src="/assets/main-QYnIJOoC.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/styles-BuMBmiGq.js">
+    <link rel="stylesheet" crossorigin href="/assets/styles-m6IA1Kkt.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>
