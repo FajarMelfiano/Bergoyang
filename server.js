@@ -271,16 +271,37 @@ function publicState() {
 let cacheKota = { daftar: null, diambilPada: 0 };
 const UMUR_KOTA_MS = 12 * 60 * 60 * 1000; // 12 jam
 
+// Kalau pengambilan jadwal gagal, jangan langsung mencoba lagi: setiap buka
+// halaman akan memicu percobaan ulang dan sumber jadwal bisa-rate-limit (429),
+// sehingga satu gangguan kecil berubah macet terus. Jeda 10 menit dulu.
+const JEDA_GAGAL_MS = 10 * 60 * 1000;
+let jedaCobaJadwal = 0;
+
+/** Ambil JSON dengan satu percobaan ulang (sumber kadang gagal sesaat). */
+async function ambilJson(url) {
+  for (let percobaan = 0; percobaan < 2; percobaan += 1) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (res.ok) return await res.json();
+      const terakhir = percobaan === 1;
+      if (!terakhir && res.status >= 500) throw new Error(`HTTP ${res.status}`);
+      const err = new Error(`HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    } catch (err) {
+      if (percobaan === 1) throw err;
+      await new Promise((r) => setTimeout(r, 400)); // jeda sebentar lalu coba lagi
+    }
+  }
+  throw new Error('Gagal mengambil jadwal');
+}
+
 /** Ambil daftar kota/kabupaten Indonesia (id + nama) dari myquran. */
 async function ambilDaftarKota() {
   if (cacheKota.daftar && Date.now() - cacheKota.diambilPada < UMUR_KOTA_MS) {
     return cacheKota.daftar;
   }
-  const res = await fetch('https://api.myquran.com/v2/sholat/kota/semua', {
-    signal: AbortSignal.timeout(8000),
-  });
-  if (!res.ok) throw new Error(`myquran kota HTTP ${res.status}`);
-  const data = await res.json();
+  const data = await ambilJson('https://api.myquran.com/v2/sholat/kota/semua');
   const daftar = (Array.isArray(data.data) ? data.data : [])
     .map((k) => ({ id: String(k.id || ''), nama: String(k.lokasi || '').trim() }))
     .filter((k) => k.id && k.nama);
@@ -346,9 +367,7 @@ async function ambilJadwalKota(idKota, tanggal) {
   // myquran v1 memakai urutan /tahun/bulan/tanggal (bukan urutan aslinya)
   const u = `https://api.myquran.com/v1/sholat/jadwal/${encodeURIComponent(idKota)}`
     + `/${encodeURIComponent(tahun)}/${encodeURIComponent(bulan)}/${encodeURIComponent(tgl)}`;
-  const res = await fetch(u, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`myquran jadwal HTTP ${res.status}`);
-  const data = await res.json();
+  const data = await ambilJson(u);
   const j = (data && data.data && data.data.jadwal) || null;
   if (!j) throw new Error('Jadwal kota kosong');
   const jadwal = {};
@@ -734,9 +753,7 @@ function cekTanggal(t) {
 async function ambilJadwalAdzan(latitude, longitude, tanggal) {
   const u = `https://api.aladhan.com/v1/timings/${encodeURIComponent(tanggal)}`
     + `?latitude=${latitude}&longitude=${longitude}&method=20`;
-  const res = await fetch(u, { signal: AbortSignal.timeout(8000) });
-  if (!res.ok) throw new Error(`aladhan HTTP ${res.status}`);
-  const data = await res.json();
+  const data = await ambilJson(u);
   const t = (data && data.data && data.data.timings) || {};
   const jadwal = {};
   for (const nama of ADZAN_WAKTU) if (t[nama]) jadwal[nama] = String(t[nama]).slice(0, 5);
@@ -1096,8 +1113,22 @@ async function handleApi(req, res, url) {
 
     // Urutan sumber: jam manual > kota acara > lokasi perangkat.
     const sudahAda = Boolean(a.jadwal && a.jadwal[tanggal]);
+    // masih di dalam jeda setelah gagal sebelumnya → jangan sentuh sumber lagi
+    if (!sudahAda && Date.now() < jedaCobaJadwal) {
+      const cadangan = (a.jadwal && Object.values(a.jadwal)[0]) || null;
+      return sendJson(res, 200, {
+        jadwal: cadangan && terapkanKoreksi(cadangan, a.koreksi),
+        sumber: a.kotaId ? 'kota' : (a.lat ? 'lokasi' : null),
+        kotaNama: a.kotaNama || null,
+        koreksi: a.koreksi || null,
+        durasi: a.durasi,
+        enabled: a.enabled,
+        error: 'Sumber jadwal sedang tidak bisa dihubungi. Jadwal terakhir tetap dipakai.',
+      });
+    }
     if (!sudahAda) {
       try {
+        jedaCobaJadwal = 0;
         if (a.kotaId) {
           // kota acara: akurat, dan ikut ter-refresh sendiri tiap ganti tanggal
           const hasil = await ambilJadwalKota(a.kotaId, tanggal);
@@ -1107,6 +1138,7 @@ async function handleApi(req, res, url) {
           mutate(() => simpanJadwalAdzan(tanggal, jadwal));
         }
       } catch {
+        jedaCobaJadwal = Date.now() + JEDA_GAGAL_MS; // jangan spam sumber
         const cadangan = (state.adzan && state.adzan.jadwal) || null;
         return sendJson(res, 200, {
           jadwal: (cadangan && Object.values(cadangan)[0]) || null,
@@ -1114,7 +1146,7 @@ async function handleApi(req, res, url) {
           kotaNama: a.kotaNama || null,
           durasi: state.adzan.durasi,
           enabled: state.adzan.enabled,
-          error: 'Gagal mengambil jadwal adzan. Coba lagi nanti.',
+          error: 'Sumber jadwal sedang tidak bisa dihubungi. Jadwal terakhir tetap dipakai.',
         });
       }
     }
@@ -1159,7 +1191,10 @@ async function handleApi(req, res, url) {
     try {
       hasil = await ambilJadwalKota(hasilCari.kota.id, tanggal);
     } catch {
-      return sendJson(res, 502, { error: 'Gagal mengambil jadwal dari sumber jadwal. Coba lagi.' });
+      jedaCobaJadwal = Date.now() + JEDA_GAGAL_MS;
+      return sendJson(res, 502, {
+        error: 'Sumber jadwal tidak bisa dihubungi. Periksa internet server, lalu coba lagi.',
+      });
     }
 
     const durasi = Math.min(Math.max(Number(body.durasi) || (state.adzan && state.adzan.durasi) || 10, 1), 60);
