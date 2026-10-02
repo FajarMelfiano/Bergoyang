@@ -892,7 +892,11 @@ async function handleApi(req, res, url) {
   if (p.startsWith('/api/dj') || p === '/api/event') {
     const sesi = djSesi(req);
     if (!sesi) return sendJson(res, 401, { error: 'Token DJ tidak valid. Masuk ulang.' });
-    if (method !== 'POST' && method !== 'PATCH') return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
+    // daftar panitia dibaca dengan GET; sisanya hanya tulis (POST/PATCH)
+    const bacaDaftar = method === 'GET' && p === '/api/dj/users';
+    if (method !== 'POST' && method !== 'PATCH' && !bacaDaftar) {
+      return sendJson(res, 405, { error: 'Method tidak diizinkan.' });
+    }
     const body = await readBody(req);
     const kelola = sesi.peran === 'admin'; // admin memutar & mengelola; user hanya via halaman tamu
 
@@ -923,6 +927,42 @@ async function handleApi(req, res, url) {
       });
       // password berubah → token lama hangus; kirim token pengganti
       return sendJson(res, 200, { token: buatToken(baru) });
+    }
+
+    /* --- daftar panitia (admin): untuk melihat siapa saja yang punya akun --- */
+    if (bacaDaftar && p === '/api/dj/users') {
+      if (!kelola) {
+        return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+      }
+      // hash & salt TIDAK pernah dikirim ke klien
+      return sendJson(res, 200, {
+        users: state.users.map((u) => ({
+          username: u.username,
+          nama: u.nama || u.username,
+          peran: u.peran || 'user',
+        })),
+      });
+    }
+
+    /* --- reset password panitia (admin): tanpa perlu password lama, buat
+     *     ulang password orang yang lupa. Sesi lama user tsb otomatis hangus
+     *     karena hash ikut dicampur ke dalam token. --- */
+    if (method === 'POST' && p === '/api/dj/reset-password') {
+      if (!kelola) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+      const username = clean(body.username, 40).toLowerCase();
+      const passwordBaru = clean(body.passwordBaru, 64);
+      if (!username) return sendJson(res, 400, { error: 'Pilih user yang password-nya mau direset.' });
+      if (passwordBaru.length < 6) {
+        return sendJson(res, 400, { error: 'Password baru minimal 6 karakter.' });
+      }
+      const target = state.users.find((x) => x.username === username);
+      if (!target) return sendJson(res, 404, { error: `Username "${username}" tidak ada.` });
+      mutate(() => {
+        const idx = state.users.findIndex((x) => x.username === username);
+        // peran lama dipertahankan — reset password tidak mengubah hak akses
+        if (idx >= 0) state.users[idx] = buatUser(target.username, target.nama, passwordBaru, target.peran);
+      });
+      return sendJson(res, 200, { ok: true, username });
     }
 
     if (method === 'PATCH' && p === '/api/event') {

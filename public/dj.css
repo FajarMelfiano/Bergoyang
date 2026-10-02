@@ -688,3 +688,81 @@
   .console .row,
   .usermenu__trigger { transition: none; }
 }
+
+/* ------------------------------------------- kelola panitia (reset password) */
+
+.panitia {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.panitia__item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+}
+
+.panitia__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+}
+
+.panitia__identitas {
+  display: flex;
+  flex-direction: column;
+  margin-right: auto;
+  min-width: 0;
+}
+
+.panitia__identitas strong {
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.panitia__meta {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.panitia__peran {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.panitia__peran.is-admin {
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+}
+
+/* baris yang form reset-nya sedang terbuka */
+.panitia__row.is-dibuka {
+  border-bottom: 1px dashed var(--line);
+}
+
+.panitia__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px;
+}
+
+.panitia__form[hidden] {
+  display: none;
+}
+
+.panitia__form .field {
+  margin: 0;
+}

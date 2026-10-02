@@ -196,6 +196,17 @@
           <button class="btn btn--danger btn--sm" id="clearAll" type="button">Kosongkan semua antrean</button>
         </div>
       </details>
+
+      <!-- kelola panitia: reset password panitia yang lupa (admin) -->
+      <details class="settings" id="panitiaBox">
+        <summary>Kelola panitia</summary>
+        <p class="hint">
+          Kalau ada panitia yang lupa password, kamu bisa bikin password baru di sini
+          tanpa perlu password lamanya. Sesi panitia yang sedang login langsung keluar.
+        </p>
+        <div class="panitia" id="panitiaList" aria-live="polite"></div>
+        <p class="form-note" id="panitiaNote" role="alert"></p>
+      </details>
     </div>
 
     <!-- antrean -->

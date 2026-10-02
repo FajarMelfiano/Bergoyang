@@ -111,8 +111,10 @@ function showApp() {
   $('userChip').textContent = user
     ? (user.peran === 'admin' ? `${user.nama} (admin)` : user.nama)
     : '';
-  // pengaturan acara hanya untuk admin; ganti password untuk semua user
+  // pengaturan acara & kelola panitia hanya untuk admin; ganti password
+  // untuk semua user
   $('settingsBox').hidden = !bisaKelola();
+  $('panitiaBox').hidden = !bisaKelola();
   syncSettings();
 }
 
@@ -907,15 +909,30 @@ function setupSettings() {
 /* ----------------------------------------------------------- ganti password */
 
 function setupPassword() {
+  // Ganti password di hosting bisa makan beberapa detik (server baru bangun),
+  // jadi perlu penanda "sedang menyimpan". Tanpa ini user menekan tombol
+  // berulang: klik kedua mengirim token yang sudah hangus oleh klik pertama,
+  // sehingga jawabannya 401, sesi justru dilogout, dan user mengira
+  // passwordnya tidak berubah.
+  let sedangSimpan = false;
+
   $('passForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const note = $('passNote');
+    if (sedangSimpan) return; // abaikan klik tambahan saat masih menyimpan
     const baru = $('passBaru').value;
     if (baru !== $('passBaru2').value) {
       note.dataset.tone = 'error';
       note.textContent = 'Password baru tidak sama di kedua kotak.';
       return;
     }
+    sedangSimpan = true;
+    const tombol = $('passForm').querySelector('button[type=submit]');
+    const labelAwal = tombol.textContent;
+    tombol.disabled = true;
+    tombol.textContent = 'Menyimpan…';
+    note.dataset.tone = '';
+    note.textContent = 'Menyimpan password baru…';
     try {
       const data = await api('/api/dj/password', 'POST', {
         passwordLama: $('passLama').value,
@@ -932,8 +949,154 @@ function setupPassword() {
     } catch (err) {
       note.dataset.tone = 'error';
       note.textContent = err.message;
+    } finally {
+      sedangSimpan = false;
+      tombol.disabled = false;
+      tombol.textContent = labelAwal;
     }
   });
+}
+
+/* --------------------------------------------------- kelola panitia (admin) */
+
+/** Daftar akun panitia + form reset password (admin saja). */
+function setupKelolaPanitia() {
+  const box = $('panitiaBox');
+  const list = $('panitiaList');
+  const note = $('panitiaNote');
+  if (!box || !list || !note) return null;
+
+  // username yang lagi di-reset → cegah klik ganda saat request berjalan
+  let sedangReset = '';
+
+  // tutup form yang sedang terbuka (disembunyikan, bukan dilepas dari DOM,
+  // supaya tidak perlu membangun ulang form tiap kali dibuka)
+  function tutupForm() {
+    list.querySelectorAll('.panitia__form').forEach((n) => { n.hidden = true; });
+    list.querySelectorAll('.panitia__row').forEach((n) => n.classList.remove('is-dibuka'));
+  }
+
+  async function kirimReset(username, form) {
+    if (sedangReset) return;
+    const baru = form.querySelector('.panitia__baru').value;
+    const ulang = form.querySelector('.panitia__ulang').value;
+    if (baru.length < 6) {
+      note.dataset.tone = 'error';
+      note.textContent = 'Password baru minimal 6 karakter.';
+      return;
+    }
+    if (baru !== ulang) {
+      note.dataset.tone = 'error';
+      note.textContent = 'Password baru tidak sama di kedua kotak.';
+      return;
+    }
+    sedangReset = username;
+    const tombol = form.querySelector('button[type=submit]');
+    const labelAwal = tombol.textContent;
+    tombol.disabled = true;
+    tombol.textContent = 'Menyimpan…';
+    note.dataset.tone = '';
+    note.textContent = `Menyimpan password baru untuk ${username}…`;
+    try {
+      await api('/api/dj/reset-password', 'POST', { username, passwordBaru: baru });
+      note.dataset.tone = 'ok';
+      note.textContent = `Password ${username} diganti. Sesi dia di device lain sudah keluar.`;
+      tutupForm();
+      await muatDaftarPanitia();
+      toast(`Password ${username} direset.`);
+    } catch (err) {
+      note.dataset.tone = 'error';
+      note.textContent = err.message;
+    } finally {
+      sedangReset = '';
+      tombol.disabled = false;
+      tombol.textContent = labelAwal;
+    }
+  }
+
+  async function muatDaftarPanitia() {
+    try {
+      const data = await api('/api/dj/users', 'GET');
+      const users = Array.isArray(data.users) ? data.users : [];
+      if (!users.length) {
+        list.replaceChildren(el('p', { class: 'hint', text: 'Belum ada akun panitia.' }));
+        return;
+      }
+      list.replaceChildren(...users.map((u) => {
+        // admin me-reset dirinya lewat form "Ganti password saya" di menu user,
+        // jadi barisnya tidak punya tombol reset
+        const bisaReset = u.peran !== 'admin';
+        const form = bisaReset ? el('form', { class: 'panitia__form', hidden: true }, [
+          el('div', { class: 'field field--sm' }, [
+            el('label', { for: `pwBaru_${u.username}`, text: 'Password baru' }),
+            el('input', {
+              id: `pwBaru_${u.username}`,
+              class: 'panitia__baru',
+              type: 'password',
+              minlength: '6',
+              autocomplete: 'new-password',
+              required: true,
+              placeholder: 'minimal 6 karakter',
+            }),
+          ]),
+          el('div', { class: 'field field--sm' }, [
+            el('label', { for: `pwUlang_${u.username}`, text: 'Ulangi password baru' }),
+            el('input', {
+              id: `pwUlang_${u.username}`,
+              class: 'panitia__ulang',
+              type: 'password',
+              minlength: '6',
+              autocomplete: 'new-password',
+              required: true,
+            }),
+          ]),
+          el('button', { class: 'btn btn--amber btn--sm', type: 'submit', text: 'Simpan password baru' }),
+        ]) : null;
+        if (form) {
+          form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            kirimReset(u.username, form);
+          });
+        }
+
+        const row = el('div', { class: 'panitia__row' }, [
+          el('div', { class: 'panitia__identitas' }, [
+            el('strong', { text: u.nama }),
+            el('span', { class: 'panitia__meta', text: `@${u.username}` }),
+          ]),
+          el('span', {
+            class: `panitia__peran${u.peran === 'admin' ? ' is-admin' : ''}`,
+            text: u.peran === 'admin' ? 'admin' : 'panitia',
+          }),
+          bisaReset
+            ? el('button', {
+              class: 'btn btn--ghost btn--sm',
+              type: 'button',
+              text: 'Reset password',
+              onclick: () => {
+                const mauDibuka = form.hidden;
+                tutupForm();
+                if (mauDibuka) {
+                  form.hidden = false;
+                  row.classList.add('is-dibuka');
+                  form.querySelector('.panitia__baru').focus();
+                }
+              },
+            })
+            : el('span', { class: 'panitia__meta', text: 'ganti sendiri di menu user' }),
+        ]);
+        return el('div', { class: 'panitia__item' }, form ? [row, form] : [row]);
+      }));
+    } catch (err) {
+      list.replaceChildren(el('p', { class: 'hint', text: err.message }));
+    }
+  }
+
+  // daftar dimuat saat section dibuka saja, supaya tidak menambah beban awal
+  box.addEventListener('toggle', () => {
+    if (box.open && bisaKelola()) muatDaftarPanitia();
+  });
+  return { muatDaftarPanitia, tutupForm };
 }
 
 /* --------------------------------------------------- adzan otomatis */
@@ -1186,6 +1349,7 @@ async function boot() {
   setupPlayerControls();
   setupSettings();
   setupPassword();
+  setupKelolaPanitia();
   setupUserMenu();
   setupAdzan();
   setupSpacebar();
