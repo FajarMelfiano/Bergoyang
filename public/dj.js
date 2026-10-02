@@ -1163,6 +1163,9 @@ async function muatAdzan() {
     const res = await fetch(`/api/adzan?tanggal=${encodeURIComponent(tanggalLocal())}`);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Gagal memuat jadwal adzan.');
+    // "sumber jadwal tidak bisa dihubungi" datang sebagai payload dengan HTTP 200 —
+    // catat supaya panel memberi tahu DJ, bukan diam saja.
+    adzan.error = data.error || '';
     adzan.jadwal = data.jadwal || null;
     adzan.sumber = data.sumber || (data.jadwal ? 'lokasi' : null);
     adzan.kotaNama = data.kotaNama || null;
@@ -1173,7 +1176,9 @@ async function muatAdzan() {
     adzan.durasi = Number(data.durasi) || 10;
     adzan.enabled = data.enabled !== false;
     adzan.tanggal = tanggalLocal();
-  } catch { /* belum disetel atau offline — diam saja */ }
+  } catch (err) {
+    adzan.error = (err && err.message) || 'Gagal memuat jadwal adzan.';
+  }
   renderAdzanSetting();
   cekAdzan();
 }
@@ -1358,8 +1363,18 @@ function renderAdzanSetting() {
       : null,
   ];
 
-  box.replaceChildren(
+  // replaceChildren() menerima varargs, jadi bungkus dulu agar bisa disaring
+  box.replaceChildren(...[
     el('p', { class: 'adzan-jadwal__title', text: 'Jam adzan' }),
+    adzan.error
+      ? el('p', {
+        class: 'form-note',
+        // el() hanya memperlakukan khusus 'class'/'text'/'on*' — atribut lain
+        // harus ditulis sebagai key biasa, bukan lewat dataset.
+        'data-tone': 'error',
+        text: `${adzan.error} Sambil menunggu, isi jamnya sendiri di bawah — cara ini tetap jalan tanpa internet.`,
+      })
+      : null,
     el('p', {
       class: 'adzan-jadwal__sumber',
       // el() hanya memperlakukan khusus 'class'/'text'/'on*' — jadi dataset lewat atribut
@@ -1374,7 +1389,9 @@ function renderAdzanSetting() {
     }),
     ...baris,
     el('div', { class: 'adzan-jadwal__aksi' }, aksi.filter(Boolean)),
-  );
+    // filter(Boolean): baris pesan error boleh null (kalau sumber sehat),
+    // dan replaceChildren(null) akan menulis teks "null" ke panel.
+  ].filter(Boolean));
 }
 
 function setupAdzan() {
