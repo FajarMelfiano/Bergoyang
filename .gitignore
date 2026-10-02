@@ -14,3 +14,6 @@ audio/
 .agents/
 skills-lock.json
 *.log
+.build-check/
+.playwright-mcp/
+.opencode/

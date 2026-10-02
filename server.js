@@ -218,6 +218,22 @@ function broadcast() {
   }
 }
 
+/** Terakhir dikirim panel DJ — beat-grid untuk visualizer tamu (tidak dipersist). */
+let beatCache = null;
+
+/** Broadcast beat sebagai named event supaya murah & tidak memicu render state penuh. */
+function broadcastBeat(payload) {
+  beatCache = payload;
+  const line = `event: beat\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const res of sseClients) {
+    try {
+      res.write(line);
+    } catch {
+      sseClients.delete(res);
+    }
+  }
+}
+
 function publicState() {
   const order = queueOrder().map((t) => t.id); // urutan antrean versi vote
   return {
@@ -234,6 +250,7 @@ function publicState() {
     nextId: order[0] || null,
     autoNext: Boolean(state.autoNext),
     player: state.player || null,
+    beat: beatCache,
     serverTime: Date.now(),
   };
 }
@@ -1023,6 +1040,30 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, { playing: next, done: true });
     }
 
+    /* --- beat-grid: panel DJ mengirim posisi + BPM + energi (tanpa mutate,
+     *     hanya broadcast supaya visualizer tamu ikut berdenyut) --- */
+    if (method === 'POST' && p === '/api/dj/beat') {
+      if (!kelola) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+      const pos = Number(body.pos);
+      const dur = Number(body.dur);
+      const bpmRaw = body.bpm === null || body.bpm === undefined ? null : Number(body.bpm);
+      const bpm = bpmRaw !== null && Number.isFinite(bpmRaw)
+        ? Math.min(Math.max(bpmRaw, 40), 240)
+        : null;
+      const energyRaw = Number(body.energy);
+      const energy = Number.isFinite(energyRaw) ? Math.min(Math.max(energyRaw, 0), 1) : 0;
+      broadcastBeat({
+        pos: Number.isFinite(pos) ? Math.min(Math.max(pos, 0), 86400) : 0,
+        dur: Number.isFinite(dur) ? Math.min(Math.max(dur, 0), 86400) : 0,
+        bpm,
+        energy,
+        playing: Boolean(body.playing),
+        trackId: clean(String(body.trackId || ''), 40) || null,
+        t: Date.now(),
+      });
+      return sendJson(res, 200, { ok: true });
+    }
+
     if (method === 'POST' && p === '/api/dj/auto') {
       mutate(() => { state.autoNext = Boolean(body.enabled); });
       return sendJson(res, 200, { autoNext: state.autoNext });
@@ -1292,11 +1333,13 @@ function handleRequest(req, res) {
 function startLocal() {
   const server = http.createServer((req, res) => { serve(req, res); });
 
+  // heartbeat berupa named event (bukan comment) supaya EventSource klien
+  // bisa mendeteksi koneksi zombie (proxy menahan socket mati tanpa onerror).
   const heartbeat = setInterval(() => {
     for (const res of sseClients) {
-      try { res.write(': ping\n\n'); } catch { sseClients.delete(res); }
+      try { res.write('event: heartbeat\ndata: 1\n\n'); } catch { sseClients.delete(res); }
     }
-  }, 25000);
+  }, 10000);
 
   server.listen(PORT, () => {
     const nets = require('node:os').networkInterfaces();

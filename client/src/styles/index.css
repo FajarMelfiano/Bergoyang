@@ -1,0 +1,262 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/* =========================================================================
+   Design tokens — shadcn semantic layer dengan palet Spotify (dark only).
+   Identitas: UI menghilang supaya konten menyala. Satu aksen fungsional
+   (Spotify Green) hanya untuk kontrol play/CTA/aktif; sisanya arang.
+   ========================================================================= */
+
+:root {
+  /* radius dasar (shadcn scale); pill pakai rounded-full eksplisit */
+  --radius: 0.5rem;
+
+  --background: #121212;
+  --foreground: #ffffff;
+
+  --card: #181818;
+  --card-foreground: #ffffff;
+
+  --popover: #242424;
+  --popover-foreground: #ffffff;
+
+  --primary: #1ed760;
+  --primary-foreground: #000000;
+
+  --secondary: #1f1f1f;
+  --secondary-foreground: #ffffff;
+
+  --muted: #1f1f1f;
+  --muted-foreground: #b3b3b3;
+
+  --accent: #2a2a2a;
+  --accent-foreground: #ffffff;
+
+  --destructive: #f3727f;
+  --destructive-foreground: #000000;
+
+  --success: #1ed760;
+  --success-foreground: #000000;
+  --warning: #ffa42b;
+  --warning-foreground: #000000;
+
+  --border: rgb(255 255 255 / 10%);
+  --input: rgb(124 124 124 / 45%);
+  --ring: #1ed760;
+
+  --sidebar: #000000;
+  --sidebar-foreground: #b3b3b3;
+  --sidebar-primary: #1ed760;
+  --sidebar-primary-foreground: #000000;
+  --sidebar-accent: #1f1f1f;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 10%);
+  --sidebar-ring: #1ed760;
+
+  /* lapisan permukaan Spotify (bertingkat, bukan token shadcn standar) */
+  --surface-1: #121212;
+  --surface-2: #181818;
+  --surface-3: #1f1f1f;
+  --surface-4: #252525;
+  --surface-elevated: #272727;
+
+  /* aksen merek */
+  --brand: #1ed760;
+  --brand-border: #1db954;
+  --brand-hover: #3be477;
+  --brand-active: #1bc951;
+
+  --text-secondary: #b3b3b3;
+  --text-on-brand: #000000;
+
+  /* teks & permukaan sesuai referensi Stitch */
+  --surface: #131313;
+  --on-surface: #e5e2e1;
+  --on-surface-variant: #bbcbb8;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-surface: var(--surface);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-variant: var(--on-surface-variant);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-4: var(--surface-4);
+  --color-surface-elevated: var(--surface-elevated);
+
+  --color-brand: var(--brand);
+  --color-brand-border: var(--brand-border);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-active: var(--brand-active);
+
+  --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-script: 'Grand Hotel', cursive;
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    background-color: var(--background);
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* scrollbar tipis gaya Spotify */
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(255 255 255 / 20%);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(255 255 255 / 35%);
+    background-clip: content-box;
+  }
+
+  ::selection {
+    background: var(--brand);
+    color: var(--text-on-brand);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* equalizer mini (now playing) & titik live berdenyut */
+@keyframes eq-bounce {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.eq-bar {
+  transform-origin: bottom;
+  animation: eq-bounce 0.9s ease-in-out infinite;
+}
+.eq-bar:nth-child(2) {
+  animation-delay: 0.18s;
+}
+.eq-bar:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+/* denyut gradasi glow mengikuti tempo lagu (durasi di-set inline per BPM) */
+@keyframes beat-glow {
+  0%,
+  100% {
+    opacity: calc(0.22 + var(--amp, 0.4) * 0.3);
+    transform: scale(1);
+  }
+  12% {
+    opacity: calc(0.45 + var(--amp, 0.4) * 0.55);
+    transform: scale(1.03);
+  }
+  55% {
+    opacity: calc(0.28 + var(--amp, 0.4) * 0.35);
+    transform: scale(1.005);
+  }
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.82);
+  }
+}
+
+.live-dot {
+  animation: live-pulse 2.4s ease-in-out infinite;
+}
+
+/* scrollbar tipis utk kolom sidebar DJ */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f3f transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: #3f3f3f;
+  border-radius: 999px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
