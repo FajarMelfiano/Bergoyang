@@ -890,6 +890,7 @@ function applyState(raw) {
 }
 
 let pollTimer = null;
+let pollInterval = 2500;
 
 /** Ambil state terbaru dari server (mode polling cadangan, mis. di Vercel). */
 async function pollState() {
@@ -897,15 +898,38 @@ async function pollState() {
     const res = await fetch('/api/state');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     applyState(await res.text());
+    if (pollInterval > 2500 && !document.hidden) {
+      pollInterval = 2500;
+      clearInterval(pollTimer);
+      pollTimer = setInterval(pollState, pollInterval);
+    }
   } catch {
     setConn(false);
+    if (pollInterval < 10000) {
+      pollInterval = Math.min(pollInterval + 2500, 10000);
+      clearInterval(pollTimer);
+      pollTimer = setInterval(pollState, pollInterval);
+    }
   }
 }
 
 function startPolling() {
   if (pollTimer) return;
   pollState();
-  pollTimer = setInterval(pollState, 2500);
+  pollTimer = setInterval(pollState, pollInterval);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!pollTimer) return;
+    if (document.hidden) {
+      clearInterval(pollTimer);
+      pollTimer = setInterval(pollState, 30000); // 30 detik di background
+    } else {
+      clearInterval(pollTimer);
+      pollInterval = 2500;
+      pollState();
+      pollTimer = setInterval(pollState, pollInterval);
+    }
+  });
 }
 
 function connect() {

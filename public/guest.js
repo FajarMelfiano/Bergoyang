@@ -664,6 +664,7 @@ function applyState(next) {
 }
 
 let pollTimer = null;
+let pollInterval = 2500;
 
 /** Polling cadangan bila SSE tidak tersedia (mis. di Vercel). */
 function startPolling() {
@@ -673,12 +674,38 @@ function startPolling() {
       const res = await fetch('/api/state');
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       applyState(await res.json());
+      // Kembalikan ke frekuensi normal bila pulih
+      if (pollInterval > 2500 && !document.hidden) {
+        pollInterval = 2500;
+        clearInterval(pollTimer);
+        pollTimer = setInterval(tick, pollInterval);
+      }
     } catch {
       $('connState').textContent = 'reconnecting…';
+      // Backoff saat gagal agar tidak membombardir server & kuota
+      if (pollInterval < 10000) {
+        pollInterval = Math.min(pollInterval + 2500, 10000);
+        clearInterval(pollTimer);
+        pollTimer = setInterval(tick, pollInterval);
+      }
     }
   };
   tick();
-  pollTimer = setInterval(tick, 2500);
+  pollTimer = setInterval(tick, pollInterval);
+
+  // Kurangi frekuensi saat tab di latar belakang / layar HP mati untuk hemat kuota
+  document.addEventListener('visibilitychange', () => {
+    if (!pollTimer) return;
+    if (document.hidden) {
+      clearInterval(pollTimer);
+      pollTimer = setInterval(tick, 30000); // 30 detik saat tab diminimalkan
+    } else {
+      clearInterval(pollTimer);
+      pollInterval = 2500;
+      tick();
+      pollTimer = setInterval(tick, pollInterval);
+    }
+  });
 }
 
 function connect() {

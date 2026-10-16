@@ -110,43 +110,158 @@ function loadSecret() {
   return s;
 }
 
-/* ------------------------------------------- penyimpanan mode daring (Redis) */
+/* ------------------------------------------- penyimpanan mode daring (Supabase & Redis) */
 
 /**
- * Kredensial Redis REST. Marketplace Vercel memberi nama KV_*; proyek Upstash
- * langsung memakai UPSTASH_*. Keduanya protokol REST yang sama, jadi terima dua-duanya.
+ * Penyimpanan daring mendukung Supabase (prioritas 1, tanpa batasan bandwidth sempit)
+ * dan Upstash Redis / Vercel KV (prioritas 2, protokol REST).
  */
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+  || process.env.SUPABASE_KEY
+  || process.env.SUPABASE_ANON_KEY;
+const USE_SUPABASE = Boolean(IS_VERCEL && SUPABASE_URL && SUPABASE_KEY);
+
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+const USE_REDIS = Boolean(IS_VERCEL && !USE_SUPABASE && REDIS_URL && REDIS_TOKEN);
+
 const STATE_KEY = 'requestlagu:state';
 const LOCK_KEY = 'requestlagu:lock';
 /** Batas lagu yang boleh menunggu di antrean. Setelah tercapai, request
  *  ditutup otomatis sampai DJ membukanya lagi. */
 const BATAS_REQUEST = 20;
 let dirty = false; // penanda ada mutasi yang belum disimpan (mode daring)
-let stateSiap = false; // state request ini benar-benar termuat dari Redis?
+let stateSiap = false; // state request ini benar-benar termuat dari cloud?
 
-/**
- * Kunci tulis lintas instance. Mutex modul (chain) hanya berlaku di satu
- * instance, sedangkan Vercel bisa menjalankan beberapa instance sekaligus —
- * tanpa kunci ini, satu instance bisa menimpa hasil instance lain.
- * Return { ok: true, token } | { ok: false,_reason: 'redis' | 'dimiliki' }
- * 'redis' = Redis tidak bisa dihubungi (coba lagi tidak berguna, fail fast).
- */
-async function ambilKunci() {
-  if (!IS_VERCEL || !REDIS_URL || !REDIS_TOKEN) return { ok: true, token: 'lokal' };
+/* --- Supabase (PostgREST) --- */
+
+async function ambilKunciSupabase() {
+  const token = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+  const now = Date.now();
+  const expiresAt = now + 8000;
+  try {
+    const getUrl = `${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(LOCK_KEY)}&select=value`;
+    const getRes = await fetch(getUrl, {
+      headers: {
+        apikey: SUPABASE_KEY,
+        authorization: `Bearer ${SUPABASE_KEY}`,
+        accept: 'application/json',
+      },
+    });
+    if (!getRes.ok) {
+      const errText = await getRes.text().catch(() => '');
+      console.error(`Gagal cek lock Supabase (HTTP ${getRes.status}):`, errText);
+      return { ok: false, reason: 'redis' };
+    }
+    const rows = await getRes.json();
+    const curr = Array.isArray(rows) && rows.length > 0 ? rows[0].value : null;
+    if (curr && typeof curr === 'object' && curr.expiresAt && curr.expiresAt > now) {
+      return { ok: false, reason: 'dimiliki' };
+    }
+
+    const postUrl = `${SUPABASE_URL}/rest/v1/app_state`;
+    const postRes = await fetch(postUrl, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        authorization: `Bearer ${SUPABASE_KEY}`,
+        'content-type': 'application/json',
+        Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify({
+        key: LOCK_KEY,
+        value: { token, expiresAt },
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    if (!postRes.ok) {
+      const errText = await postRes.text().catch(() => '');
+      console.error(`Gagal ambil lock Supabase (HTTP ${postRes.status}):`, errText);
+      return { ok: false, reason: 'redis' };
+    }
+    return { ok: true, token };
+  } catch (err) {
+    console.error('Gagal mengambil kunci tulis Supabase:', err.message);
+    return { ok: false, reason: 'redis' };
+  }
+}
+
+async function lepasKunciSupabase(token) {
+  if (!token || token === 'lokal') return;
+  try {
+    const delUrl = `${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(LOCK_KEY)}`;
+    await fetch(delUrl, {
+      method: 'DELETE',
+      headers: {
+        apikey: SUPABASE_KEY,
+        authorization: `Bearer ${SUPABASE_KEY}`,
+      },
+    });
+  } catch { /* kunci kedaluwarsa otomatis lewat expiresAt */ }
+}
+
+async function loadStateSupabase() {
+  try {
+    const url = `${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(STATE_KEY)}&select=value`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        apikey: SUPABASE_KEY,
+        authorization: `Bearer ${SUPABASE_KEY}`,
+        accept: 'application/json',
+      },
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      console.error(`Gagal mengambil state dari Supabase (HTTP ${res.status}):`, errText);
+      return { ok: false, error: `Supabase HTTP ${res.status}: ${errText}` };
+    }
+    const rows = await res.json();
+    const raw = Array.isArray(rows) && rows.length > 0 ? rows[0].value : null;
+    return { ok: true, state: raw ? normalizeState(raw) : null };
+  } catch (err) {
+    console.error('Gagal mengambil state dari Supabase:', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+async function saveStateSupabase() {
+  const url = `${SUPABASE_URL}/rest/v1/app_state`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      authorization: `Bearer ${SUPABASE_KEY}`,
+      'content-type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({
+      key: STATE_KEY,
+      value: state,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Supabase UPSERT -> HTTP ${res.status}: ${errText}`);
+  }
+}
+
+/* --- Redis (Upstash) --- */
+
+async function ambilKunciRedis() {
   const token = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
   try {
     const res = await redis('SET', LOCK_KEY, token, 'NX', 'EX', '8');
     return res === 'OK' ? { ok: true, token } : { ok: false, reason: 'dimiliki' };
   } catch (err) {
-    console.error('Gagal mengambil kunci tulis:', err.message);
+    console.error('Gagal mengambil kunci tulis Redis:', err.message);
     return { ok: false, reason: 'redis' };
   }
 }
 
-/** Lepas kunci hanya kalau masih milik kita (bisa kedaluwarsa di tengah jalan). */
-async function lepasKunci(token) {
+async function lepasKunciRedis(token) {
   if (!token || token === 'lokal') return;
   try {
     const sekarang = await redis('GET', LOCK_KEY);
@@ -160,20 +275,14 @@ async function redis(cmd, ...args) {
     headers: { authorization: `Bearer ${REDIS_TOKEN}`, 'content-type': 'application/json' },
     body: JSON.stringify([cmd, ...args]),
   });
-  if (!res.ok) throw new Error(`Redis ${cmd} -> HTTP ${res.status}`);
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Redis ${cmd} -> HTTP ${res.status}: ${errText}`);
+  }
   return (await res.json()).result;
 }
 
-/**
- * Ambil state terbaru dari Redis (mode daring).
- * PENTING: bedakan "gagal baca" dari "belum ada state".
- *  - { ok: true,  state }  → data terbaca (state null = Redis masih kosong, sah)
- *  - { ok: false }         → Redis error; pemanggil HARUS berhenti, jangan
- *                            mutate & menyimpan state lokal karena itu akan
- *                            menimpa seluruh data acara dengan state kosong.
- */
-async function loadStateRemote() {
-  if (!IS_VERCEL || !REDIS_URL || !REDIS_TOKEN) return { ok: true, state: null, lokal: true };
+async function loadStateRedis() {
   try {
     const raw = await redis('GET', STATE_KEY);
     return { ok: true, state: raw ? normalizeState(JSON.parse(raw)) : null };
@@ -183,9 +292,36 @@ async function loadStateRemote() {
   }
 }
 
-async function saveStateRemote() {
-  if (!IS_VERCEL || !REDIS_URL || !REDIS_TOKEN) return;
+async function saveStateRedis() {
   await redis('SET', STATE_KEY, JSON.stringify(state));
+}
+
+/* --- Dispatcher Penyimpanan Daring --- */
+
+async function ambilKunci() {
+  if (!IS_VERCEL) return { ok: true, token: 'lokal' };
+  if (USE_SUPABASE) return ambilKunciSupabase();
+  if (USE_REDIS) return ambilKunciRedis();
+  return { ok: true, token: 'lokal' };
+}
+
+async function lepasKunci(token) {
+  if (!token || token === 'lokal') return;
+  if (USE_SUPABASE) return lepasKunciSupabase(token);
+  if (USE_REDIS) return lepasKunciRedis(token);
+}
+
+async function loadStateRemote() {
+  if (!IS_VERCEL) return { ok: true, state: null, lokal: true };
+  if (USE_SUPABASE) return loadStateSupabase();
+  if (USE_REDIS) return loadStateRedis();
+  return { ok: true, state: null, lokal: true };
+}
+
+async function saveStateRemote() {
+  if (!IS_VERCEL) return;
+  if (USE_SUPABASE) return saveStateSupabase();
+  if (USE_REDIS) return saveStateRedis();
 }
 
 let saveTimer = null;
@@ -846,7 +982,13 @@ async function handleApi(req, res, url) {
   const p = url.pathname;
 
   /* --- publik --- */
-  if (method === 'GET' && p === '/api/state') return sendJson(res, 200, publicState());
+  if (method === 'GET' && p === '/api/state') {
+    if (IS_VERCEL) {
+      // Cache di Edge CDN Vercel selama 2 detik untuk menghemat kuota cloud storage
+      res.setHeader('Cache-Control', 's-maxage=2, stale-while-revalidate=4');
+    }
+    return sendJson(res, 200, publicState());
+  }
 
   if (method === 'GET' && p === '/api/songs') {
     const q = clean(url.searchParams.get('q'), 80).toLowerCase();

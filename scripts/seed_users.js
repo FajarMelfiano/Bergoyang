@@ -50,6 +50,12 @@ const ROOT = path.dirname(path.dirname(__filename)); // folder proyek (induk scr
 const DATA_DIR = process.env.RL_DATA_DIR ? path.resolve(process.env.RL_DATA_DIR) : path.join(ROOT, 'data');
 const STATE_FILE = path.join(DATA_DIR, 'state.json');
 
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+  || process.env.SUPABASE_KEY
+  || process.env.SUPABASE_ANON_KEY;
+const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_KEY);
+
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const STATE_KEY = 'requestlagu:state';
@@ -101,13 +107,32 @@ if (!daftar.length) {
 
 // ambil user lama (hashnya dipertahankan kalau tidak ada di daftar baru)
 async function ambilStateLama() {
+  if (USE_SUPABASE) {
+    const url = `${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(STATE_KEY)}&select=value`;
+    const res = await fetch(url, {
+      headers: {
+        apikey: SUPABASE_KEY,
+        authorization: `Bearer ${SUPABASE_KEY}`,
+        accept: 'application/json',
+      },
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => '');
+      throw new Error(`Supabase GET -> HTTP ${res.status}: ${err}`);
+    }
+    const rows = await res.json();
+    return rows && rows.length > 0 ? rows[0].value : {};
+  }
   if (REDIS_URL && REDIS_TOKEN) {
     const res = await fetch(REDIS_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${REDIS_TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(['GET', STATE_KEY]),
     });
-    if (!res.ok) throw new Error(`Redis GET -> HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = await res.text().catch(() => '');
+      throw new Error(`Redis GET -> HTTP ${res.status}: ${err}`);
+    }
     const raw = (await res.json()).result;
     return raw ? JSON.parse(raw) : {};
   }
@@ -119,13 +144,38 @@ async function ambilStateLama() {
 }
 
 async function simpanState(state) {
+  if (USE_SUPABASE) {
+    const url = `${SUPABASE_URL}/rest/v1/app_state`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        authorization: `Bearer ${SUPABASE_KEY}`,
+        'content-type': 'application/json',
+        Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify({
+        key: STATE_KEY,
+        value: state,
+        updated_at: new Date().toISOString(),
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.text().catch(() => '');
+      throw new Error(`Supabase POST -> HTTP ${res.status}: ${err}`);
+    }
+    return;
+  }
   if (REDIS_URL && REDIS_TOKEN) {
     const res = await fetch(REDIS_URL, {
       method: 'POST',
       headers: { authorization: `Bearer ${REDIS_TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(['SET', STATE_KEY, JSON.stringify(state)]),
     });
-    if (!res.ok) throw new Error(`Redis SET -> HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = await res.text().catch(() => '');
+      throw new Error(`Redis SET -> HTTP ${res.status}: ${err}`);
+    }
     return;
   }
   fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -145,7 +195,7 @@ async function simpanState(state) {
   }
 
   await simpanState(state);
-  const target = (REDIS_URL && REDIS_TOKEN) ? 'Redis (daring)' : `file ${STATE_FILE}`;
+  const target = USE_SUPABASE ? 'Supabase (daring)' : ((REDIS_URL && REDIS_TOKEN) ? 'Redis (daring)' : `file ${STATE_FILE}`);
   console.error(`[seed_users] ${daftar.length} user disimpan ke ${target}`);
 
   // cetak daftar username:password polos ke stdout (untuk diserahkan ke user)

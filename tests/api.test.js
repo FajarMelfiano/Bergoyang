@@ -176,7 +176,7 @@ test('rate limit: request ke-11 dalam 60 detik → 429', async () => {
   await resetQueue();
 });
 
-test('autoApprove mati → request berstatus pending', async () => {
+test.skip('autoApprove mati → request berstatus pending (status pending dihapus di branch ini)', async () => {
   await h.api('PATCH', '/api/event', { token: adminToken, body: { autoApprove: false } });
   const r = await h.api('POST', '/api/request', {
     token: user1Token,
@@ -332,25 +332,18 @@ test('clear-all menyisakan lagu yang sedang diputar; clear-done menghapus riwaya
   await resetQueue();
 });
 
-test('aksi per lagu: approve/reject/play/done/link/audio/up-down', async () => {
+test('aksi per lagu: reject/play/done/link/audio/up-down', async () => {
   await resetQueue();
-  await h.api('PATCH', '/api/event', { token: adminToken, body: { autoApprove: false } });
-  const pending = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Pending Satu', yt: YT },
+  const t1 = (await h.api('POST', '/api/request', {
+    token: user1Token, body: { title: 'Lagu Satu', yt: YT },
   })).json.track;
 
-  const approve = await h.api('POST', `/api/dj/track/${pending.id}`, {
-    token: adminToken, body: { action: 'approve' },
-  });
-  assert.equal(approve.json.track.status, 'queued');
-
-  const reject = await h.api('POST', `/api/dj/track/${pending.id}`, {
+  const reject = await h.api('POST', `/api/dj/track/${t1.id}`, {
     token: adminToken, body: { action: 'reject' },
   });
   assert.equal(reject.json.track.status, 'rejected');
 
   // play & done
-  await h.api('PATCH', '/api/event', { token: adminToken, body: { autoApprove: true } });
   const a = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'A', yt: YT } })).json.track;
   const b = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'B', yt: YT } })).json.track;
   await h.api('POST', `/api/dj/track/${a.id}`, { token: adminToken, body: { action: 'play' } });

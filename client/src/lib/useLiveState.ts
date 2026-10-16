@@ -59,17 +59,29 @@ export function useLiveState(): LiveState {
     };
     applyRef.current = terapkan;
 
+    let pollMs = 2500;
+
     const mulaiPolling = () => {
       if (poll !== undefined) return;
       const tick = async () => {
         try {
           terapkan(await fetchState());
+          if (pollMs > 2500 && !document.hidden) {
+            pollMs = 2500;
+            berhentiPolling();
+            poll = window.setInterval(() => void tick(), pollMs);
+          }
         } catch {
           if (!batal) setConn('reconnecting');
+          if (pollMs < 10000) {
+            pollMs = Math.min(pollMs + 2500, 10000);
+            berhentiPolling();
+            poll = window.setInterval(() => void tick(), pollMs);
+          }
         }
       };
       void tick();
-      poll = window.setInterval(() => void tick(), 2500);
+      poll = window.setInterval(() => void tick(), pollMs);
     };
 
     const berhentiPolling = () => {
@@ -77,6 +89,20 @@ export function useLiveState(): LiveState {
       window.clearInterval(poll);
       poll = undefined;
     };
+
+    const onVisibilityChange = () => {
+      if (poll === undefined) return;
+      berhentiPolling();
+      if (document.hidden) {
+        poll = window.setInterval(async () => {
+          try { terapkan(await fetchState()); } catch { /* ignore */ }
+        }, 30000); // 30 detik saat tab di latar belakang
+      } else {
+        pollMs = 2500;
+        mulaiPolling();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     const tutupSse = () => {
       if (!source) return;
@@ -163,6 +189,7 @@ export function useLiveState(): LiveState {
 
     return () => {
       batal = true;
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       tutupSse();
       berhentiPolling();
       if (retry !== undefined) window.clearTimeout(retry);
