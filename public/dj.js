@@ -3,12 +3,43 @@
 
 const TOKEN_KEY = 'requestlagu.dj';
 const USER_KEY = 'requestlagu.user';
-let token = sessionStorage.getItem(TOKEN_KEY) || '';
+
+/* Sesi tahan 30 hari: token disimpan di localStorage (bukan sessionStorage)
+ * dengan batas waktu 30 hari sejak login terakhir — tutup browser, matikan
+ * device, atau buka tab baru tetap dianggap masih masuk. Melewati batas
+ * waktu → sesi dianggap hangus dan wajib login ulang. Server tetap memakai
+ * token ber-MAC; batas 30 hari ini dijalankan pengguna (sisi klien). */
+const TTL_SESI = 30 * 24 * 60 * 60 * 1000;
+
+function simpanSesi(tokenBaru, dataUser) {
+  try {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify({ t: tokenBaru, e: Date.now() + TTL_SESI }));
+    if (dataUser) localStorage.setItem(USER_KEY, JSON.stringify(dataUser));
+  } catch { /* gudang penuh / mode privat — lanjut tanpa ingatan */ }
+}
+
+function muatSesi() {
+  try {
+    const kotak = JSON.parse(localStorage.getItem(TOKEN_KEY) || 'null');
+    if (!kotak || !kotak.t) return null;
+    if (!kotak.e || Date.now() > kotak.e) { hapusSesi(); return null; }
+    let dataUser = null;
+    try { dataUser = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { dataUser = null; }
+    return { token: kotak.t, user: dataUser };
+  } catch { return null; }
+}
+
+function hapusSesi() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  } catch { /* abaikan */ }
+}
+
+const sesiAwal = muatSesi();
+let token = sesiAwal ? sesiAwal.token : '';
 /** @type {{username:string,nama:string,peran:string}|null} */
-let user = null;
-try {
-  user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null');
-} catch { user = null; }
+let user = sesiAwal ? sesiAwal.user : null;
 
 /** admin boleh kelola; user biasa hanya request via halaman tamu. */
 function bisaKelola() {
@@ -127,8 +158,7 @@ function logout(notify = true) {
   }
   token = '';
   user = null;
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(USER_KEY);
+  hapusSesi();
   $('appView').hidden = true;
   tutupPopupAdzan();
   $('loginView').hidden = false;
@@ -174,7 +204,7 @@ function setupLogin() {
       if (data.peran !== 'admin') {
         // panel DJ sekarang admin-only: user biasa tidak boleh masuk ke sini
         token = '';
-        sessionStorage.removeItem(TOKEN_KEY);
+        hapusSesi();
         note.dataset.tone = 'error';
         note.textContent = `Kamu masuk sebagai ${data.nama}, tapi panel DJ hanya untuk admin. Request lagu lewat halaman tamu ya.`;
         $('toGuestBtn').hidden = false;
@@ -183,8 +213,7 @@ function setupLogin() {
       }
       token = data.token;
       user = { username: data.username, nama: data.nama, peran: data.peran };
-      sessionStorage.setItem(TOKEN_KEY, token);
-      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      simpanSesi(token, user);
       note.textContent = '';
       $('toGuestBtn').hidden = true;
       $('loginUser').value = '';
@@ -310,9 +339,14 @@ async function detakPemutar() {
   if (playing && !adzan.aktif && !jedaManual) {
     if (playing.audio && audio.paused) {
       audio.play().catch(() => { /* abaikan — dicoba lagi di detak berikut */ });
-    } else if (!playing.audio && ytPlayer && typeof ytPlayer.getPlayerState === 'function'
-               && ytPlayer.getPlayerState() === 2 /* PAUSED */) {
-      mainkanVideo();
+    } else if (!playing.audio && ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+      // -1 (belum mulai) & 5 (cued) ikut ditolong: browser menolak playVideo()
+      // di tab tersembunyi sehingga video sering nyangkut tanpa pernah mulai —
+      // bukan cuma PAUSED. Dicoba tiap detak sampai benar-benar bunyi.
+      const stateYt = ytPlayer.getPlayerState();
+      if (stateYt === 2 /* PAUSED */ || stateYt === -1 /* UNSTARTED */ || stateYt === 5 /* CUED */) {
+        mainkanVideo();
+      }
     }
   }
 
@@ -1006,7 +1040,7 @@ function setupPassword() {
       });
       // password berubah → token lama hangus, simpan token pengganti
       token = data.token;
-      sessionStorage.setItem(TOKEN_KEY, token);
+      simpanSesi(token, user);
       note.dataset.tone = 'ok';
       note.textContent = 'Password diganti. Sesi lain di device berbeda sudah dihapuskan.';
       $('passLama').value = '';
@@ -1701,7 +1735,7 @@ async function boot() {
       if (!resMe.ok) throw new Error('token tidak valid');
       if (dataMe.peran !== 'admin') {
         token = '';
-        sessionStorage.removeItem(TOKEN_KEY);
+        hapusSesi();
         const note = $('loginNote');
         note.dataset.tone = 'error';
         note.textContent = `Kamu masuk sebagai ${dataMe.nama || 'user'}, tapi panel DJ hanya untuk admin. Request lagu lewat halaman tamu ya.`;
@@ -1709,14 +1743,15 @@ async function boot() {
         return;
       }
       user = { username: dataMe.username, nama: dataMe.nama, peran: dataMe.peran };
-      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      // perbarui stempel 30-hari setiap kali sesi terbukti masuh hidup
+      simpanSesi(token, user);
       showApp();
       render();
       muatAdzan();
     } catch {
       // token hangus — biarkan layar login tampil
       token = '';
-      sessionStorage.removeItem(TOKEN_KEY);
+      hapusSesi();
     }
   } else if (state) {
     render();

@@ -4,10 +4,41 @@
 
 const TOKEN_KEY = 'requestlagu.token';
 const USER_KEY = 'requestlagu.user';
-let token = sessionStorage.getItem(TOKEN_KEY) || '';
+
+/* Sesi tahan 30 hari: token di localStorage dengan batas waktu 30 hari sejak
+ * login terakhir, dan tiap kali sesi terbukti masih hidup batasnya diperbarui.
+ * Tutup browser / matikan device tetap dianggap masih masuk sampai 30 hari. */
+const TTL_SESI = 30 * 24 * 60 * 60 * 1000;
+
+function simpanSesi(tokenBaru, dataUser) {
+  try {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify({ t: tokenBaru, e: Date.now() + TTL_SESI }));
+    if (dataUser) localStorage.setItem(USER_KEY, JSON.stringify(dataUser));
+  } catch { /* gudang penuh / mode privat — lanjut tanpa ingatan */ }
+}
+
+function muatSesi() {
+  try {
+    const kotak = JSON.parse(localStorage.getItem(TOKEN_KEY) || 'null');
+    if (!kotak || !kotak.t) return null;
+    if (!kotak.e || Date.now() > kotak.e) { hapusSesi(); return null; }
+    let dataUser = null;
+    try { dataUser = JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { dataUser = null; }
+    return { token: kotak.t, user: dataUser };
+  } catch { return null; }
+}
+
+function hapusSesi() {
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  } catch { /* abaikan */ }
+}
+
+const sesiAwal = muatSesi();
+let token = sesiAwal ? sesiAwal.token : '';
 /** @type {{username:string,nama:string,peran:string}|null} */
-let user = null;
-try { user = JSON.parse(sessionStorage.getItem(USER_KEY) || 'null'); } catch { user = null; }
+let user = sesiAwal ? sesiAwal.user : null;
 // identitas request/vote = username yang login (server pakai token, bukan device)
 let deviceId = (user && user.username) || '';
 
@@ -120,8 +151,7 @@ function hanguskanSesi(notify = true) {
   token = '';
   user = null;
   deviceId = '';
-  sessionStorage.removeItem(TOKEN_KEY);
-  sessionStorage.removeItem(USER_KEY);
+  hapusSesi();
   showLogin();
   if (notify) toast('Sesi habis — masuk ulang untuk request lagi.', 'error');
 }
@@ -144,8 +174,7 @@ function setupLogin() {
       token = data.token;
       user = { username: data.username, nama: data.nama, peran: data.peran };
       deviceId = user.username;
-      sessionStorage.setItem(TOKEN_KEY, token);
-      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      simpanSesi(token, user);
       note.textContent = '';
       $('loginUser').value = '';
       $('loginPass').value = '';
@@ -181,7 +210,7 @@ function setupPassword() {
         passwordBaru: baru,
       });
       token = data.token; // password berubah → token baru
-      sessionStorage.setItem(TOKEN_KEY, token);
+      simpanSesi(token, user);
       note.dataset.tone = 'ok';
       note.textContent = 'Password diganti.';
       $('passLama').value = '';
@@ -744,7 +773,8 @@ async function boot() {
       if (!res.ok) throw new Error('hangus');
       user = { username: data.username, nama: data.nama, peran: data.peran };
       deviceId = user.username;
-      sessionStorage.setItem(USER_KEY, JSON.stringify(user));
+      // perbarui stempel 30-hari setiap kali sesi terbukti masih hidup
+      simpanSesi(token, user);
       showApp();
     } catch {
       hanguskanSesi(false);
