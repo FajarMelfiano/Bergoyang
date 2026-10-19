@@ -145,7 +145,12 @@ const RL_KANAL = 'requestlagu';
 async function pakanRealtime(versiBaru) {
   if (!USE_SUPABASE) return;
   try {
-    await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast/${RL_KANAL}/events/update`, {
+    // HARUS di-awAIT oleh pemanggil + diberi batas waktu: container Vercel boleh
+    // dibekukan tepat setelah response dikirim, jadi fetch "fire-and-forget"
+    // bisa tertahan sampai detik berikutnya (terukur: 2,7–4,7 detik) atau tidak
+    // terkirim sama sekali. Uji terpisah membuktikan endpoint broadcast itu
+    // cepat (75–240 ms) — yang telat adalahfetch dari dalam function.
+    const r = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast/${RL_KANAL}/events/update`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_KEY,
@@ -153,8 +158,12 @@ async function pakanRealtime(versiBaru) {
         'content-type': 'application/json',
       },
       body: JSON.stringify({ v: versiBaru }),
+      signal: AbortSignal.timeout(1500),
     });
-  } catch { /* realtime gagal — tidak masalah, polling tetap bekerja */ }
+    if (!r.ok) console.warn(`Broadcast realtime HTTP ${r.status} (v=${versiBaru})`);
+  } catch (err) {
+    console.warn(`Broadcast realtime meleset: ${err && err.message}`);
+  }
 }
 
 /* --- Supabase (PostgREST) --- */
@@ -272,8 +281,11 @@ async function saveStateSupabase() {
     const errText = await res.text().catch(() => '');
     throw new Error(`Supabase UPSERT -> HTTP ${res.status}: ${errText}`);
   }
-  // Jangan ditunggu — penyimpanan tak perlu menunggu pengumuman realtime.
-  pakanRealtime(state.versi);
+  // WAJIB ditunggu (bukan fire-and-forget!): setelah response dikirim, container
+  // Vercel bisa langsung dibekukan — broadcast yang belum terkirim akan molor
+  // beberapa detik atau hilang sama sekali (telah terukur di produksi).
+  // Batas 1,5 detik sudah dipasang di dalam pakanRealtime() lewat AbortSignal.
+  await pakanRealtime(state.versi);
 }
 
 /* --- Redis (Upstash) --- */
