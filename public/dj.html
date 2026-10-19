@@ -20,6 +20,7 @@
       <span id="liveText">Request dibuka</span>
     </span>
     <span class="conn" id="connState">memuat…</span>
+    <span class="conn" id="orangOnline" hidden></span>
     <a class="topbar-link" href="/" target="_blank" rel="noopener">Halaman tamu</a>
 
     <details class="usermenu" id="userMenu" hidden>
@@ -274,6 +275,8 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="/vendor/supabase.umd.js" defer></script>
+  <script src="/realtime.js" defer></script>
   <script src="/dj.js" defer></script>
 </body>
 </html>

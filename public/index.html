@@ -144,6 +144,10 @@
       <section class="queue" aria-labelledby="playingTitle">
         <h2 class="section-title" id="playingTitle">Sedang diputar</h2>
         <div id="nowPlaying"></div>
+        <div id="nowBar" hidden aria-hidden="true"
+             style="height:6px;border-radius:3px;background:rgba(255,255,255,.14);overflow:hidden;margin-top:10px">
+          <i style="display:block;height:100%;width:0;background:var(--accent,#e11d48);transition:width .8s linear"></i>
+        </div>
       </section>
 
       <section class="queue" aria-labelledby="queueTitle" style="margin-top:30px">
@@ -162,10 +166,13 @@
   <footer class="footer">
     <span id="footerName">Request Lagu Live</span>
     <span>Tersambung: <strong id="connState">memuat…</strong></span>
+    <span id="orangOnline" hidden></span>
   </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+  <script src="/vendor/supabase.umd.js" defer></script>
+  <script src="/realtime.js" defer></script>
   <script src="/guest.js" defer></script>
 </body>
 </html>

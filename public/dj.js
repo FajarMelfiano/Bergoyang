@@ -927,13 +927,57 @@ let pollTimer = null;
 let pollInterval = 2500;
 
 /** Ambil state terbaru dari server (mode polling cadangan, mis. di Vercel). */
+/* --- Realtime (Supabase broadcast) — antrean & beat tanpa menunggu --- */
+
+let realDj = null;   // pengendali kanal realtime (kirimBeat, dsb.)
+let rtDjAktif = false;
+
+function pasangRealtime() {
+  if (!window.RLReal) return;
+  realDj = window.RLReal.sambung({
+    onUpdate: () => { pollState(); }, // dorongan instan dari server
+    onOrang: (n) => {
+      const el = $('orangOnline');
+      if (!el) return;
+      el.hidden = !(n > 0);
+      el.textContent = `${n} online`;
+    },
+    onStatus: (hidup) => {
+      rtDjAktif = hidup;
+      // setel ulang detak polling sesuai kondisi realtime (kecuali tab tersembunyi)
+      if (pollTimer && !document.hidden) {
+        pollInterval = hidup ? 6000 : 2500;
+        clearInterval(pollTimer);
+        pollTimer = setInterval(pollState, pollInterval);
+      }
+    },
+  });
+  // Beat-grid: posisi lagu dikirim langsung antar tab (tidak menyentuh server),
+  // supaya bar progres di halaman tamu menjalankan mulus.
+  setInterval(() => {
+    if (!realDj || !rtDjAktif || !kitaPegang()) return;
+    if (adzan.aktif || jedaManual) return;
+    const playing = state && state.tracks.find((t) => t.status === 'playing');
+    if (!playing || playing.audio) return; // lagu audio lokal tidak punya posisi YT
+    if (!ytPlayer || typeof ytPlayer.getCurrentTime !== 'function') return;
+    try {
+      realDj.kirimBeat({
+        pos: Math.round(ytPlayer.getCurrentTime() || 0),
+        dur: Math.round(ytPlayer.getDuration() || 0),
+      });
+    } catch { /* abaikan */ }
+  }, 2000);
+}
+
 async function pollState() {
   try {
     const res = await fetch('/api/state');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     applyState(await res.text());
-    if (pollInterval > 2500 && !document.hidden) {
-      pollInterval = 2500;
+    // Kembali ke frekuensi normal bila pulih — tapi kalau realtime hidup,
+    // 6 detik sudah cukup (event realtime yang mendorong kesegaran).
+    if (pollInterval > (rtDjAktif ? 6000 : 2500) && !document.hidden) {
+      pollInterval = rtDjAktif ? 6000 : 2500;
       clearInterval(pollTimer);
       pollTimer = setInterval(pollState, pollInterval);
     }
@@ -959,7 +1003,7 @@ function startPolling() {
       pollTimer = setInterval(pollState, 30000); // 30 detik di background
     } else {
       clearInterval(pollTimer);
-      pollInterval = 2500;
+      pollInterval = rtDjAktif ? 6000 : 2500;
       pollState();
       pollTimer = setInterval(pollState, pollInterval);
     }
@@ -1703,6 +1747,7 @@ async function boot() {
   setupAdzan();
   pasangPopupAdzan();
   setupSpacebar();
+  pasangRealtime();
   setInterval(() => {
     detakPemutar();
     // percobaan ulang: request bisa datang <3 detik setelah percobaan failed,

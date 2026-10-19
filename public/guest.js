@@ -694,46 +694,94 @@ function applyState(next) {
 
 let pollTimer = null;
 let pollInterval = 2500;
+let pollTick = null;  // penunjuk fungsi detak — bisa dipanggil langung oleh realtime
+let rtAktif = false;  // realtime tersambung? true: polling jadi cadangan saja
+
+/** Atur ulang frekuensi polling; hormati tab tersembunyi (tetap hemat). */
+function aturPoll(ms) {
+  if (document.hidden) ms = Math.max(ms, 30000);
+  pollInterval = ms;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(pollTick, pollInterval);
+  }
+}
+
+/** Ambil state terbaru — dipakai polling ATAU didorong oleh event realtime. */
+async function tarikState() {
+  try {
+    const res = await fetch('/api/state');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    applyState(await res.json());
+    // Kembalikan ke frekuensi normal bila pulih (realtime mati = jalan cepat)
+    if (!rtAktif && !document.hidden) aturPoll(2500);
+  } catch {
+    $('connState').textContent = 'reconnecting…';
+    // Backoff saat gagal agar tidak membombardir server & kuota
+    if (pollInterval < 10000) aturPoll(Math.min(pollInterval + 2500, 10000));
+  }
+}
 
 /** Polling cadangan bila SSE tidak tersedia (mis. di Vercel). */
 function startPolling() {
   if (pollTimer) return;
-  const tick = async () => {
-    try {
-      const res = await fetch('/api/state');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      applyState(await res.json());
-      // Kembalikan ke frekuensi normal bila pulih
-      if (pollInterval > 2500 && !document.hidden) {
-        pollInterval = 2500;
-        clearInterval(pollTimer);
-        pollTimer = setInterval(tick, pollInterval);
-      }
-    } catch {
-      $('connState').textContent = 'reconnecting…';
-      // Backoff saat gagal agar tidak membombardir server & kuota
-      if (pollInterval < 10000) {
-        pollInterval = Math.min(pollInterval + 2500, 10000);
-        clearInterval(pollTimer);
-        pollTimer = setInterval(tick, pollInterval);
-      }
-    }
-  };
-  tick();
-  pollTimer = setInterval(tick, pollInterval);
+  pollTick = tarikState;
+  tarikState();
+  pollTimer = setInterval(tarikState, pollInterval);
 
   // Kurangi frekuensi saat tab di latar belakang / layar HP mati untuk hemat kuota
   document.addEventListener('visibilitychange', () => {
     if (!pollTimer) return;
     if (document.hidden) {
       clearInterval(pollTimer);
-      pollTimer = setInterval(tick, 30000); // 30 detik saat tab diminimalkan
+      pollTimer = setInterval(tarikState, 30000); // 30 detik saat tab diminimalkan
     } else {
       clearInterval(pollTimer);
-      pollInterval = 2500;
-      tick();
-      pollTimer = setInterval(tick, pollInterval);
+      aturPoll(rtAktif ? 6000 : 2500);
+      tarikState();
+      pollTimer = setInterval(tarikState, pollInterval);
     }
+  });
+}
+
+/* --- Realtime (Supabase broadcast) — membuat semuanya instan --- */
+
+let beatStamp = 0;
+
+/** Bar progres lagu di kartu "Sedang diputar" — diberi makan event beat dari DJ. */
+function setelBeat(beat) {
+  const bar = $('nowBar');
+  if (!bar || !beat || !beat.dur) return;
+  beatStamp = Date.now();
+  bar.hidden = false;
+  const persen = Math.min(Math.max(beat.pos / beat.dur, 0), 1) * 100;
+  bar.firstChild.style.width = persen.toFixed(2) + '%';
+}
+
+// Detak berhenti (tab DJ tertidur / lagu jeda) → sembunyikan lagi supaya jujur.
+setInterval(() => {
+  const bar = $('nowBar');
+  if (bar && !bar.hidden && Date.now() - beatStamp > 7000) bar.hidden = true;
+}, 3000);
+
+function pasangRealtime() {
+  if (!window.RLReal) return;
+  window.RLReal.sambung({
+    onUpdate: () => { if (pollTick) pollTick(); }, // dorongan instan dari server
+    onBeat: setelBeat,
+    onOrang: (n) => {
+      const el = $('orangOnline');
+      if (!el) return;
+      el.hidden = !(n > 0);
+      el.textContent = `${n} online`;
+    },
+    onStatus: (hidup) => {
+      rtAktif = hidup;
+      // realtime hidup → polling melambat (hanya jaring pengaman);
+      // realtime mati → polling kembali 2,5 detik seperti biasa
+      if (pollTimer) aturPoll(hidup ? 6000 : 2500);
+      else pollInterval = hidup ? 6000 : 2500;
+    },
   });
 }
 
@@ -756,6 +804,7 @@ async function boot() {
   setupLogin();
   setupPassword();
   setupGuestMenu();
+  pasangRealtime();
   try {
     const res = await fetch('/api/state');
     applyState(await res.json());

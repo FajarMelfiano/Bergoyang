@@ -134,6 +134,29 @@ const BATAS_REQUEST = 20;
 let dirty = false; // penanda ada mutasi yang belum disimpan (mode daring)
 let stateSiap = false; // state request ini benar-benar termuat dari cloud?
 
+const RL_KANAL = 'requestlagu';
+
+/** Umumkan lewat Supabase Realtime (HTTP) bahwa state berubah. Halaman tamu &
+ *  panel DJ berlangganan kanal ini supaya UI menyegarkan dirinya SEKETIKA —
+ *  bukan menunggu detak polling 2,5 detik. Pemanggilannya tidak ditunggu
+ *  (fire-and-forget): kalau realtime mati, polling tetap jalan apa adanya.
+ *  Kunci yang dipakai di sini kunci servis (hanya di server); klien memakai
+ *  kunci publik yang tunduk pada RLS (tidak membocorkan apa pun). */
+async function pakanRealtime(versiBaru) {
+  if (!USE_SUPABASE) return;
+  try {
+    await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast/${RL_KANAL}/events/update`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        authorization: `Bearer ${SUPABASE_KEY}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ v: versiBaru }),
+    });
+  } catch { /* realtime gagal — tidak masalah, polling tetap bekerja */ }
+}
+
 /* --- Supabase (PostgREST) --- */
 
 async function ambilKunciSupabase() {
@@ -227,6 +250,9 @@ async function loadStateSupabase() {
 }
 
 async function saveStateSupabase() {
+  // Penyimpanan = gerbang mutasi yang menempel ke awan, jadi kenaikan nomor
+  // versi di sini mewakili SEMUA jalur perubahan (antrean, vote, detak panel).
+  state.versi = (state.versi || 0) + 1;
   const url = `${SUPABASE_URL}/rest/v1/app_state`;
   const res = await fetch(url, {
     method: 'POST',
@@ -246,6 +272,8 @@ async function saveStateSupabase() {
     const errText = await res.text().catch(() => '');
     throw new Error(`Supabase UPSERT -> HTTP ${res.status}: ${errText}`);
   }
+  // Jangan ditunggu — penyimpanan tak perlu menunggu pengumuman realtime.
+  pakanRealtime(state.versi);
 }
 
 /* --- Redis (Upstash) --- */
