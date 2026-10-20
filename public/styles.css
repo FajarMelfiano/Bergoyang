@@ -553,6 +553,8 @@ button { font: inherit; cursor: pointer; }
 }
 .form-note[data-tone="ok"] { color: #1f6b3a; font-weight: 600; }
 .form-note[data-tone="error"] { color: #a5221b; font-weight: 600; }
+/* peringatan (bukan error): mis. lagu melebihi batas durasi acara */
+.form-note[data-tone="warn"] { color: #8a5a00; font-weight: 600; }
 
 /* ------------------------------------------------------------- queue */
 

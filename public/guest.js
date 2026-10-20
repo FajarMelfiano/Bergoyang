@@ -438,6 +438,17 @@ function renderQueue(container, tracks) {
       ]));
     }
     if (rejected) sideParts.push(el('span', { class: 'tag', text: 'Ditolak' }));
+    // Lagu yang melewati batas durasi acara → tamu diberi tahu juga, supaya
+    //DJ dan tamu punya informasi yang sama.
+    if (track.melebihiBatas) {
+      sideParts.push(el('span', {
+        class: 'tag',
+        title: `Durasi ${jamMenit(track.dur)} — melewati batas ${state.event.maksDurasiMenit} menit untuk acara ini`,
+        text: `${jamMenit(track.dur)} · di luar batas`,
+      }));
+    } else if (track.dur) {
+      sideParts.push(el('span', { class: 'tag', title: 'Durasi lagu', text: jamMenit(track.dur) }));
+    }
     const side = sideParts.length ? el('div', { class: 'slip__side' }, sideParts) : null;
 
     container.append(el('article', {
@@ -700,13 +711,36 @@ function setupForm() {
       const result = await post('/api/request', payload);
       const queued = urutAntrean(state ? state.tracks.filter((t) => t.status === 'queued') : []);
       const posisi = queued.findIndex((t) => t.id === result.track.id) + 1;
+
+      if (result.duplikat) {
+        // Lagu yang sama sudah ada → tidak diduplikasi. Vote peminta tetap
+        // dihitung kalau voting dibuka, jadi keinginannya tidak hilang.
+        note.dataset.tone = 'ok';
+        note.textContent = result.catatan
+          || 'Lagu ini sudah ada di antrean.';
+        toast(result.sudahVote
+          ? 'Lagu ini sudah ada di antrean — vote kamu ikut dihitung.'
+          : 'Lagu ini sudah ada di antrean, jadi tidak diduplikasi.');
+        form.reset();
+        pickedYt = '';
+        pickedDur = 0;
+        $('results').replaceChildren();
+        return;
+      }
+
       note.dataset.tone = 'ok';
       note.textContent = result.penuh
         ? `Slip terkirim — ini request terakhir, antrean penuh (${queued.length} lagu) dan request ditutup.`
         : posisi > 0
           ? `Slip terkirim — posisi antrean #${posisi} dari ${queued.length}. Naik urutan kalau dapat vote.`
           : 'Slip terkirim.';
-      toast(`“${payload.title}” masuk antrean.`);
+      if (result.catatan) {
+        note.textContent += ` ${result.catatan}`;
+        note.dataset.tone = 'warn';
+      }
+      toast(result.melebihiBatas
+        ? `“${payload.title}” masuk antrean — lebih panjang dari batas acara.`
+        : `“${payload.title}” masuk antrean.`);
       form.reset();
       pickedYt = '';
       pickedDur = 0;

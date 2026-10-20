@@ -69,6 +69,59 @@ if (!panelId) {
 
 const $ = (id) => document.getElementById(id);
 
+/* --- Wake Lock: layar panel DJ tidak boleh tidur saat acara berjalan ---
+ * Tanpa ini, laptop/HP DJ bisa layarnya padam di tengah acara dan DJ
+ * harus menyalakannya lagi (bisa kehilangan request yang masuk).
+ * Browser hanya mengizinkan wake lock di tab yang terlihat, jadi izinnya
+ * diambil ulang setiap tab kembali terlihat. */
+let wakeLockSentinel = null;
+
+function wakeLockDidukung() {
+  return typeof navigator !== 'undefined' && 'wakeLock' in navigator;
+}
+
+/** Ambil izin wake lock. Diam-diam gagal bila browser tidak mendukung atau
+ *  menolak — fitur ini pelengkap, bukan syarat. */
+async function ambilWakeLock() {
+  if (!wakeLockDidukung() || wakeLockSentinel) return;
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+  } catch {
+    wakeLockSentinel = null; // ditolak / tidak tersedia
+  }
+  gambarChipWakeLock();
+}
+
+function lepasWakeLock() {
+  if (!wakeLockSentinel) return;
+  const s = wakeLockSentinel;
+  wakeLockSentinel = null;
+  s.release().catch(() => { /* abaikan */ });
+  gambarChipWakeLock();
+}
+
+/** Chip kecil di konsol: memberi tahu DJ layar dijaga atau tidak. */
+function gambarChipWakeLock() {
+  const chip = $('wakeChip');
+  if (!chip) return;
+  if (!wakeLockDidukung()) { chip.hidden = true; return; }
+  const hidup = Boolean(wakeLockSentinel);
+  chip.hidden = !hidup;
+  chip.dataset.tone = hidup ? 'ok' : 'stale';
+  chip.textContent = hidup ? 'Layar dijaga' : 'Layar bisa tidur';
+  chip.title = hidup
+    ? 'Layar panel ini tidak akan padat sendiri selama acara'
+    : 'Browser sedang tidak mengizinkan menjaga layar awake';
+}
+
+// izin diambil lagi begitu tab kembali terlihat (browser mencabut izin
+// wake lock setiap kali tab disembunyikan)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && token) ambilWakeLock();
+});
+window.addEventListener('pagehide', () => { if (wakeLockSentinel) lepasWakeLock(); });
+
 /* ------------------------------------------------------------ utilitas */
 
 /**
@@ -147,6 +200,8 @@ function showApp() {
   $('settingsBox').hidden = !bisaKelola();
   $('panitiaBox').hidden = !bisaKelola();
   syncSettings();
+  // Panel sudah aktif → minta izin menjaga layar tetap menyala.
+  ambilWakeLock();
   // adzan bisa jadi sudah berjalan sebelum DJ masuk — tampilkan popup-nya
   // sekarang juga, bukan menunggu detak berikutnya
   renderAdzanBanner(statusAdzan());
@@ -159,6 +214,7 @@ function logout(notify = true) {
   token = '';
   user = null;
   hapusSesi();
+  lepasWakeLock();
   $('appView').hidden = true;
   tutupPopupAdzan();
   $('loginView').hidden = false;
@@ -625,11 +681,12 @@ function sourceControls(track) {
 }
 
 /* --------------------------------------------------------------- render */
-
 function syncSettings() {
   if (!state || settingsSynced) return;
   $('evName').value = state.event.name;
   $('evTagline').value = state.event.tagline;
+  $('evMaksDurasi').value = String(state.event.maksDurasiMenit || 0);
+  $('evPerlakuanDurasi').value = state.event.perlakuanDurasiPanjang || 'tandai';
   settingsSynced = true;
 }
 
@@ -692,10 +749,20 @@ function queueRow(track, number) {
       el('div', { class: 'row__meta' }, [
         el('span', { text: track.requester || 'Tamu' }),
         voteCount ? el('span', { text: `${voteCount} vote` }) : null,
+        track.dur ? el('span', { text: jamMenit(track.dur) }) : null,
         track.audio ? el('span', { text: `file: ${track.audio}` }) : null,
         track.yt && !track.audio ? el('span', { text: 'sumber: YouTube' }) : null,
         !track.yt && !track.audio ? el('span', { text: 'belum ada sumber' }) : null,
         tagLabel ? el('span', { class: 'row__tag', 'data-tone': tagTone, text: tagLabel }) : null,
+        // Lagu yang melewati batas durasi acara → ditandai, DJ yang memutuskan.
+        track.melebihiBatas
+          ? el('span', {
+            class: 'row__tag',
+            'data-tone': 'wait',
+            title: `Lagu ini ${jamPendek(track.dur)} — melewati batas ${state.event.maksDurasiMenit} menit untuk acara ini`,
+            text: `di luar batas ${state.event.maksDurasiMenit} mnt`,
+          })
+          : null,
         track.message ? el('span', { class: 'msg', text: `“${track.message}”` }) : null,
       ]),
       track.status !== 'done' && track.status !== 'playing' && bisaKelola() ? sourceControls(track) : null,
@@ -722,6 +789,10 @@ function renderNow() {
     const v = Object.keys(berikutnya.votes || {}).length;
     nextUp.hidden = false;
     nextUp.textContent = `Berikutnya: ${berikutnya.title}${berikutnya.artist ? ` — ${berikutnya.artist}` : ''}${v ? ` (${v} vote)` : ''}`;
+    // Peringatan batas durasi: DJ perlu tahu SEBELUM lagu ini mulai.
+    if (berikutnya.melebihiBatas) {
+      nextUp.textContent += ` — ${jamPendek(berikutnya.dur)}, melewati batas ${state.event.maksDurasiMenit} menit`;
+    }
   } else {
     nextUp.hidden = true;
   }
@@ -1166,6 +1237,8 @@ function setupSettings() {
       await api('/api/event', 'PATCH', {
         name: $('evName').value.trim(),
         tagline: $('evTagline').value.trim(),
+        maksDurasiMenit: Math.max(0, Number($('evMaksDurasi').value) || 0),
+        perlakuanDurasiPanjang: $('evPerlakuanDurasi').value === 'tolak' ? 'tolak' : 'tandai',
       });
       toast('Pengaturan disimpan.');
     } catch (err) {
