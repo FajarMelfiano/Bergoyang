@@ -2,6 +2,35 @@
    Dipasang setelah styles.css; tidak mengubah aturan styles.css yang sudah ada. */
 
 /* =========================================================================
+   Bar progres "Sedang diputar"
+   ---------------------------------------------------------------------------
+   Isinya posisi video YouTube: panel DJ mengirim posisi + durasi lewat event
+   beat, lalu bar dihitung ulang dari jam lokal tiap frame sehingga bergerak
+   mulus. Warna mengikuti bahasa warna proyek: amber = sedang berjalan,
+   jalur kosong pakai garis tipis --amber-soft.
+   ========================================================================= */
+.now-bar {
+  height: 6px;
+  margin-top: 10px;
+  border-radius: 3px;
+  background: var(--amber-soft);
+  overflow: hidden;
+}
+.now-bar__isi {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--amber);
+}
+.now-time {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* =========================================================================
    Halaman tamu — belum login vs sudah login
    ---------------------------------------------------------------------------
    Satu kolom kiri dipakai dua bentuk, ditukar otomatis lewat body[data-auth]:

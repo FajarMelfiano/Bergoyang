@@ -372,12 +372,19 @@ function renderNowPlaying(container, track) {
     ]));
     return;
   }
+  const dur = durasiKeDetik(track.dur);
   const slip = el('article', { class: 'slip slip--live' }, [
     el('div', { class: 'slip__no', text: '♪' }),
     slipBody(track),
-    track.yt
+    (track.yt || dur)
       ? el('div', { class: 'slip__side' }, [
-          el('a', { class: 'link-btn', href: `https://www.youtube.com/watch?v=${track.yt}`, target: '_blank', rel: 'noopener', text: 'dengarkan' }),
+          // Durasi total sudah diketahui Even sebelum posisi pertama masuk —
+          // ini yang jujur: yang belum diketahui adalah posisinya, bukan
+          // lamanya lagu.
+          dur ? el('span', { class: 'tag', text: jamMenit(dur) }) : null,
+          track.yt
+            ? el('a', { class: 'link-btn', href: `https://www.youtube.com/watch?v=${track.yt}`, target: '_blank', rel: 'noopener', text: 'dengarkan' })
+            : null,
         ])
       : null,
     el('div', { class: 'stamp' }, [
@@ -494,6 +501,30 @@ function render() {
   $('statPlayed').textContent = String(done.length);
   $('queueCount').textContent = `${queued.length} lagu`;
 
+  // Sisa antrean = jumlah durasi lagu yang menunggu. Lagu yang durasinya
+  // belum diketahui tidak ikut dihitung, jadi angkanya ditulis dengan "~"
+  // (batas bawah) — bukan tebakan.
+  const stat = state.statistik || null;
+  const elDurasi = $('statDuration');
+  if (elDurasi) {
+    const antrean = stat && stat.antrean ? stat.antrean : { lagu: 0, detik: 0, durasiDiketahui: 0 };
+    const belum = Math.max(0, (antrean.lagu || 0) - (antrean.durasiDiketahui || 0));
+    if (!antrean.lagu) {
+      elDurasi.textContent = '—';
+      elDurasi.title = 'Belum ada lagu di antrean';
+    } else if (!antrean.detik) {
+      // Ada lagunya, tapi durasinya belum ada satu pun yang diketahui
+      // (lagu lama yang request-nya dibuat sebelum durasi disimpan).
+      elDurasi.textContent = '?';
+      elDurasi.title = 'Durasi lagu belum diketahui — akan terisi setelah DJ memutar lagu-lagu itu';
+    } else {
+      elDurasi.textContent = `${belum ? '~' : ''}${jamPendek(antrean.detik)}`;
+      elDurasi.title = belum
+        ? `${belum} dari ${antrean.lagu} lagu belum punya durasi yang diketahui — angka ini batas bawah`
+        : 'Total durasi lagu yang menunggu di antrean';
+    }
+  }
+
   renderNowPlaying($('nowPlaying'), playing);
   renderQueue($('queue'), queued.concat(rejectedMine));
 
@@ -520,6 +551,7 @@ function render() {
 /* ---------------------------------------------------------- pencarian */
 
 let pickedYt = '';      // id YouTube yang dipilih dari saran (biar tidak cari ulang)
+let pickedDur = 0;      // durasi lagu yang dipilih (detik) — ikut terkirim ke server
 let detectTimer = null;
 let searchSeq = 0;      // abaikan jawaban pencarian yang sudah basi
 
@@ -563,6 +595,7 @@ function pilihSuggestion(song) {
   $('title').value = song.title;
   $('artist').value = song.artist || '';
   pickedYt = song.yt || '';
+  pickedDur = durasiKeDetik(song.duration);
   // Link yang pernah ditempel manual tidak boleh ikut terbawa — sekarang
   // yang dipilih adalah hasil pencarian.
   $('source').value = '';
@@ -609,13 +642,14 @@ function setupForm() {
   // dibuang, karena link yang ditempel adalah pilihan yang lebih disengaja.
   if (sourceInput) {
     sourceInput.addEventListener('input', () => {
-      if (sourceInput.value.trim()) pickedYt = '';
+      if (sourceInput.value.trim()) { pickedYt = ''; pickedDur = 0; }
     });
   }
 
   titleInput.addEventListener('input', () => {
     clearTimeout(searchTimer);
     pickedYt = ''; // ketik manual → biarkan server yang mencari sumber lagu
+    pickedDur = 0; // durasi ikut dibuang — yang berlaku durasi hasil server
     const value = titleInput.value.trim();
     if (value.length < 2) {
       $('results').replaceChildren();
@@ -654,6 +688,9 @@ function setupForm() {
       // Link yang ditempel user dipakai langsung (server tidak mencari lagi);
       // kalau tidak ada, pakai hasil pencarian yang dipilih.
       yt: linkTempel || pickedYt || '',
+      // Durasi (detik) ikut dikirim kalau tahu — ini yang bikin total jam
+      // antrean bisa dihitung tanpa menebak.
+      dur: pickedDur || 0,
     };
 
     $('submitBtn').disabled = true;
@@ -672,6 +709,7 @@ function setupForm() {
       toast(`“${payload.title}” masuk antrean.`);
       form.reset();
       pickedYt = '';
+      pickedDur = 0;
       $('results').replaceChildren();
       const wrap = $('detect');
       if (wrap) { wrap.hidden = true; wrap.replaceChildren(); }
@@ -688,6 +726,7 @@ function setupForm() {
 
 function applyState(next) {
   state = next;
+  sinkronBarDenganLagu();
   render();
   $('connState').textContent = 'tersambung';
 }
@@ -746,17 +785,110 @@ function startPolling() {
 
 /* --- Realtime (Supabase broadcast) — membuat semuanya instan --- */
 
-let beatStamp = 0;
+/* --- Durasi & format waktu --- */
 
-/** Bar progres lagu di kartu "Sedang diputar" — diberi makan event beat dari DJ. */
+/** "3:45" atau "1:02:03" → detik. */
+function durasiKeDetik(nilai) {
+  if (nilai === null || nilai === undefined || nilai === '') return 0;
+  if (typeof nilai === 'number') return Number.isFinite(nilai) ? Math.max(0, Math.round(nilai)) : 0;
+  const bagian = String(nilai).trim().split(':').map((x) => Number(x));
+  if (!bagian.length || bagian.some((x) => !Number.isFinite(x))) return 0;
+  let detik = 0;
+  for (const b of bagian) detik = detik * 60 + b;
+  return Math.max(0, Math.min(detik, 86400));
+}
+
+/** Detik → "3:45" (jam baru muncul kalau memang lewat 1 jam). */
+function jamMenit(detik) {
+  const d = Math.max(0, Math.round(Number(detik) || 0));
+  const jam = Math.floor(d / 3600);
+  const menit = Math.floor((d % 3600) / 60);
+  const sisa = d % 60;
+  const mm = String(menit).padStart(2, '0');
+  const ss = String(sisa).padStart(2, '0');
+  return jam > 0 ? `${jam}:${mm}:${ss}` : `${menit}:${ss}`;
+}
+
+/** Detik → "1j 24m" untuk total acara. */
+function jamPendek(detik) {
+  const d = Math.max(0, Math.round(Number(detik) || 0));
+  const jam = Math.floor(d / 3600);
+  const menit = Math.round((d % 3600) / 60);
+  if (jam > 0) return `${jam}j ${menit}m`;
+  if (menit > 0) return `${menit}m`;
+  return `${d} dtk`;
+}
+
+/* --- Bar progres "Sedang diputar" ---
+ * Sumbernya event beat dari panel DJ (posisi + durasi), lalu posisinya
+ * DIHITUNG ULANG dari jam lokal tiap frame — jadi bar bergerak mulus dan
+ * tetap benar walau beat datang terlambat. */
+
+let beatStamp = 0;
+let beatPos = 0;
+let beatDur = 0;
+let beatTiba = 0;
+let beatValid = false;   // sudah ada beat untuk lagu ini? sebelum itu posisi TIDAK boleh dikira
+let barLaguId = '';
+
 function setelBeat(beat) {
   const bar = $('nowBar');
   if (!bar || !beat || !beat.dur) return;
   beatStamp = Date.now();
+  beatPos = Math.max(0, Number(beat.pos) || 0);
+  beatDur = Math.max(1, Number(beat.dur) || 0);
+  beatTiba = Date.now();
+  beatValid = true;
   bar.hidden = false;
-  const persen = Math.min(Math.max(beat.pos / beat.dur, 0), 1) * 100;
-  bar.firstChild.style.width = persen.toFixed(2) + '%';
+  gambarBar();
 }
+
+/** Gambar ulang bar dari posisi beat terakhir + waktu yang sudah berjalan. */
+function gambarBar() {
+  const bar = $('nowBar');
+  if (!bar || bar.hidden || !beatDur || !beatValid) return;
+  const pos = Math.min(beatPos + (Date.now() - beatTiba) / 1000, beatDur);
+  const persen = (pos / beatDur) * 100;
+  const isi = bar.firstElementChild;
+  if (isi) isi.style.width = `${persen.toFixed(2)}%`;
+  bar.setAttribute('aria-valuenow', String(Math.round(persen)));
+  const jam = $('nowTime');
+  if (jam) {
+    jam.textContent = `${jamMenit(pos)} / ${jamMenit(beatDur)}`;
+    jam.hidden = false;
+  }
+  bar.setAttribute('aria-valuetext', `${jamMenit(pos)} dari ${jamMenit(beatDur)}`);
+}
+
+/** Lagu yang diputar berganti → bar direset, lalu diisi lagi dari beat baru.
+ *  Sebelum beat pertama arrive, bar TIDAK ditampilkan: posisi aslinya belum
+ *  diketahui, jadi menampilkan bar dari nol berarti mengarang angka. */
+function sinkronBarDenganLagu() {
+  const main = state && state.tracks ? state.tracks.find((t) => t.status === 'playing') : null;
+  const id = main ? main.id : '';
+  if (id === barLaguId) return;
+  barLaguId = id;
+  beatPos = 0;
+  beatDur = main ? durasiKeDetik(main.dur) : 0;
+  beatTiba = Date.now();
+  beatValid = false;
+  const bar = $('nowBar');
+  const jam = $('nowTime');
+  if (bar) {
+    bar.hidden = true;
+    const isi = bar.firstElementChild;
+    if (isi) isi.style.width = '0%';
+  }
+  if (jam) jam.hidden = true;
+}
+
+// Loop frame: bar mengikuti jam lokal. requestAnimationFrame otomatis berhenti
+// saat tab disembunyikan → tidak boros baterai.
+function loopBar() {
+  gambarBar();
+  requestAnimationFrame(loopBar);
+}
+requestAnimationFrame(loopBar);
 
 // Detak berhenti (tab DJ tertidur / lagu jeda) → sembunyikan lagi supaya jujur.
 setInterval(() => {
@@ -795,6 +927,11 @@ function connect() {
   source.onmessage = (event) => {
     try { applyState(JSON.parse(event.data)); } catch { /* abaikan */ }
   };
+  // Beat datang sebagai event bernama (bukan state penuh) supaya murah.
+  // Di mode daring beat lewat Supabase Realtime; ini jalur mode lokal.
+  source.addEventListener('beat', (event) => {
+    try { setelBeat(JSON.parse(event.data)); } catch { /* abaikan */ }
+  });
   source.onerror = () => {
     // SSE tidak tersedia (mode daring) → tutup & beralih ke polling.
     source.close();

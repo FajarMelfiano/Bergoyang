@@ -366,6 +366,45 @@
 }
 .deck__next[hidden] { display: none; }
 
+/* bar progres pemutar: posisi asli dari video YouTube (bukan perkiraan),
+   jadi DJ tahu persis lagu berjalan sampai mana. */
+.deck__progress { margin: 10px 0 0; }
+.deck__progress[hidden] { display: none; }
+.deck__bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--amber-soft);
+  overflow: hidden;
+}
+.deck__bar > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--amber);
+}
+.deck__time {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+/* total durasi acara: berapa lama antrean, berapa lama sudah diputar */
+.deck__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.deck__stats[hidden] { display: none; }
+.deck__stats b {
+  color: var(--amber);
+  font-variant-numeric: tabular-nums;
+}
+
 .deck__chips { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .chip {

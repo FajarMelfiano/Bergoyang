@@ -564,6 +564,42 @@ function publicStateRamping(dariState = state) {
   return p;
 }
 
+/** Ubah durasi YouTube ("3:45" / "1:02:03") menjadi detik. */
+function durasiKeDetik(nilai) {
+  if (nilai === null || nilai === undefined || nilai === '') return 0;
+  if (typeof nilai === 'number') return Number.isFinite(nilai) ? Math.max(0, Math.round(nilai)) : 0;
+  const bagian = String(nilai).trim().split(':').map((x) => Number(x));
+  if (bagian.some((x) => !Number.isFinite(x))) return 0;
+  let detik = 0;
+  for (const b of bagian) detik = detik * 60 + b;
+  return Math.max(0, Math.min(detik, 86400));
+}
+
+/** Ringkasan durasi acara: berapa lama antrean, berapa lama sudah diputar.
+ * tracks yang durasinya belum diketahui tetap dihitung sebagai 0 — makanya
+ *  angka ditampilkan sebagai batas bawah, bukan karangan. */
+function hitungStatistik(dariState = state) {
+  let antreanLagu = 0; let antreanDetik = 0; let antreanDiketahui = 0;
+  let diputarLagu = 0; let diputarDetik = 0; let diputarDiketahui = 0;
+  let durasiDiketahui = 0;
+  for (const t of dariState.tracks || []) {
+    const dur = durasiKeDetik(t.dur);
+    if (dur > 0) durasiDiketahui += 1;
+    if (t.status === 'queued') {
+      antreanLagu += 1; antreanDetik += dur;
+      if (dur > 0) antreanDiketahui += 1;
+    } else if (t.status === 'done') {
+      diputarLagu += 1; diputarDetik += dur;
+      if (dur > 0) diputarDiketahui += 1;
+    }
+  }
+  return {
+    antrean: { lagu: antreanLagu, detik: antreanDetik, durasiDiketahui: antreanDiketahui },
+    diputar: { lagu: diputarLagu, detik: diputarDetik, durasiDiketahui: diputarDiketahui },
+    durasiDiketahui,
+  };
+}
+
 function publicState(dariState = state) {
   const order = queueOrder(dariState).map((t) => t.id); // urutan antrean versi vote
   return {
@@ -581,6 +617,7 @@ function publicState(dariState = state) {
     player: dariState.player || null,
     beat: beatCache,
     batas: BATAS_REQUEST,
+    statistik: hitungStatistik(dariState),
     serverTime: Date.now(),
   };
 }
@@ -1310,11 +1347,15 @@ async function handleApi(req, res, url) {
     // Setiap request WAJIB punya sumber lagu: pakai link tempelan tamu,
     // atau cari otomatis di YouTube dari judul + artis.
     let yt = ytId(body.yt);
+    // Durasi ikut dikirim tamu dari hasil pencarian (dalam detik). Kalau tamu
+    // mengetik judul manual, server ambil sendiri dari hasil pencarian YouTube.
+    let dur = durasiKeDetik(body.dur);
     if (!yt) {
       const artist = clean(body.artist, 120);
       try {
         const found = await youtubeSearch(`${title} ${artist}`.trim());
         yt = found.id;
+        if (!dur) dur = durasiKeDetik(found.duration);
       } catch {
         return sendJson(res, 400, {
           error: 'Sumber lagu tidak ditemukan otomatis. Tulis judul lebih spesifik atau tempel link YouTube-nya.',
@@ -1338,6 +1379,7 @@ async function handleApi(req, res, url) {
       // Tidak ada lagi status "menunggu": setiap request langsung masuk antrean
       status: 'queued',
       createdAt: Date.now(),
+      dur, // durasi lagu dalam detik (0 = belum diketahui)
       playedAt: 0,
     };
     // Antrean penuh → request ditutup otomatis. DJ yang membuka kembali.
@@ -1781,6 +1823,20 @@ async function handleApi(req, res, url) {
         state.tracks = state.tracks.filter((t) => t.status !== 'done');
       });
       return sendJson(res, 200, { ok: true });
+    }
+
+    /* Durasi lagu yang sudah diputar — dikirim panel DJ dari pemutar YouTube.
+     * Ini sumber durasi paling akurat, dan juga mengisi lagu-lagu lama yang
+     *.request-nya dibuat sebelum durasi disimpan. */
+    if (method === 'POST' && p === '/api/dj/durasi') {
+      const track = findTrack(clean(body.id, 64));
+      if (!track) return sendJson(res, 404, { error: 'Lagu tidak ditemukan.' });
+      const dur = durasiKeDetik(body.dur);
+      if (!dur) return sendJson(res, 400, { error: 'Durasi tidak valid.' });
+      if (durasiKeDetik(track.dur) !== dur) {
+        mutate(() => { track.dur = dur; });
+      }
+      return sendJson(res, 200, { ok: true, id: track.id, dur });
     }
 
     if (method === 'POST' && p === '/api/dj/clear-all') {

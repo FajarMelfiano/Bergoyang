@@ -726,6 +726,34 @@ function renderNow() {
     nextUp.hidden = true;
   }
 
+  // Total durasi acara: berapa lama antrean, berapa lama sudah diputar.
+  // Lagu yang durasinya belum diketahui tidak ikut dihitung → angka ditulis
+  // dengan "~" (batas bawah), bukan karangan.
+  const stat = state.statistik || null;
+  const statsEl = $('deckStats');
+  if (statsEl) {
+    const antrean = stat && stat.antrean ? stat.antrean : { lagu: 0, detik: 0, durasiDiketahui: 0 };
+    const diputar = stat && stat.diputar ? stat.diputar : { lagu: 0, detik: 0, durasiDiketahui: 0 };
+    const belumAntrean = Math.max(0, (antrean.lagu || 0) - (antrean.durasiDiketahui || 0));
+    const belumDiputar = Math.max(0, (diputar.lagu || 0) - (diputar.durasiDiketahui || 0));
+    const elA = $('deckAntrean');
+    const elD = $('deckDiputar');
+    if (elA) {
+      elA.textContent = !antrean.lagu ? 'kosong'
+        : !antrean.detik ? '?'
+          : `${belumAntrean ? '~' : ''}${jamPendek(antrean.detik)}`;
+    }
+    if (elD) {
+      elD.textContent = !diputar.lagu ? 'belum ada'
+        : !diputar.detik ? '?'
+          : `${belumDiputar ? '~' : ''}${jamPendek(diputar.detik)}`;
+    }
+    statsEl.hidden = false;
+    statsEl.title = belumAntrean || belumDiputar
+      ? 'Lagu yang durasinya belum diketahui tidak ikut dihitung — angka ini batas bawah'
+      : 'Total durasi lagu, dihitung dari durasi yang diketahui';
+  }
+
   const sourceRow = $('sourceRow');
   if (playing && bisaKelola()) {
     sourceRow.hidden = false;
@@ -970,7 +998,111 @@ function pasangRealtime() {
       });
     } catch { /* abaikan */ }
   }, 2000);
+
+  // Fallback mode lokal: tanpa kanal realtime, beat dikirim ke server lokal
+  // yang menyiarkannya lewat SSE ke halaman tamu. Di produksi tidak pernah
+  // dipakai (kanal realtime selalu hidup di sana).
+  setInterval(() => {
+    if (realDj && rtDjAktif) return;
+    if (!kitaPegang() || adzan.aktif || jedaManual) return;
+    const playing = state && state.tracks.find((t) => t.status === 'playing');
+    if (!playing || playing.audio) return;
+    if (!ytPlayer || typeof ytPlayer.getCurrentTime !== 'function') return;
+    try {
+      fetch('/api/dj/beat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-dj-token': token },
+        body: JSON.stringify({
+          pos: Math.round(ytPlayer.getCurrentTime() || 0),
+          dur: Math.round(ytPlayer.getDuration() || 0),
+        }),
+      }).catch(() => { /* abaikan */ });
+    } catch { /* abaikan */ }
+  }, 2000);
 }
+
+/* --- Bar progres pemutar + durasi lagu ---
+ * Sumbernya pemutar itu sendiri: ytPlayer (YouTube) atau audioEl (file
+ * lokal). Jadi angkanya bukan perkiraan — ini posisi video yang sedang
+ * berjalan. */
+
+function jamMenit(detik) {
+  const d = Math.max(0, Math.round(Number(detik) || 0));
+  const jam = Math.floor(d / 3600);
+  const menit = Math.floor((d % 3600) / 60);
+  const sisa = d % 60;
+  const mm = String(menit).padStart(2, '0');
+  const ss = String(sisa).padStart(2, '0');
+  return jam > 0 ? `${jam}:${mm}:${ss}` : `${menit}:${ss}`;
+}
+
+function jamPendek(detik) {
+  const d = Math.max(0, Math.round(Number(detik) || 0));
+  const jam = Math.floor(d / 3600);
+  const menit = Math.round((d % 3600) / 60);
+  if (jam > 0) return `${jam}j ${menit}m`;
+  if (menit > 0) return `${menit}m`;
+  return `${d} dtk`;
+}
+
+/** Durasi yang sudah dilaporkan ke server, per lagu — supaya tidak mengirim
+ *  request yang sama berulang-ulang. */
+const durasiDilaporkan = {};
+
+/** Laporkan durasi asli lagu ke server (sumber paling akurat, juga mengisi
+ *  lagu-lagu lama yang request-nya dibuat sebelum durasi disimpan). */
+async function laporkanDurasi(track, dur) {
+  const detik = Math.round(Number(dur) || 0);
+  if (!track || !detik || detik < 5) return;
+  const known = Number(track.dur) || 0;
+  if (Math.abs(known - detik) <= 2) return; // sudah sama
+  if (durasiDilaporkan[track.id] === detik) return;
+  durasiDilaporkan[track.id] = detik;
+  try {
+    await api('/api/dj/durasi', 'POST', { id: track.id, dur: detik });
+  } catch { /* diamkan: ini bonus, bukan hal penting */ }
+}
+
+/** Perbarui bar progres pemutar. Dipanggil tiap 250 ms. */
+function gambarProgresPemutar() {
+  const wrap = $('deckProgress');
+  if (!wrap) return;
+  const playing = state && state.tracks ? state.tracks.find((t) => t.status === 'playing') : null;
+  if (!playing) { wrap.hidden = true; return; }
+  let pos = 0;
+  let dur = 0;
+  if (playing.audio) {
+    const el = $('audioEl');
+    pos = el && el.currentTime ? el.currentTime : 0;
+    dur = el && el.duration && isFinite(el.duration) ? el.duration : 0;
+  } else if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+    try {
+      pos = ytPlayer.getCurrentTime() || 0;
+      dur = ytPlayer.getDuration() || 0;
+    } catch { /* abaikan */ }
+  }
+  if (!dur || !isFinite(dur)) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const persen = Math.min(Math.max(pos / dur, 0), 1) * 100;
+  const isi = $('deckBarIsi');
+  if (isi) isi.style.width = `${persen.toFixed(2)}%`;
+  const bar = $('deckBar');
+  if (bar) bar.setAttribute('aria-valuenow', String(Math.round(persen)));
+  const jam = $('deckTime');
+  if (jam) jam.textContent = `${jamMenit(pos)} / ${jamMenit(dur)}`;
+  if (bar) {
+    bar.setAttribute('aria-valuenow', String(Math.round(persen)));
+    bar.setAttribute('aria-valuetext', `${jamMenit(pos)} dari ${jamMenit(dur)}`);
+  }
+  laporkanDurasi(playing, dur);
+}
+
+// Bar progres untuk panel DJ: 250 ms cukup halus, dan berhenti total saat
+// tab disembunyikan supaya tidak membebani perangkat.
+setInterval(() => {
+  if (document.hidden) return;
+  gambarProgresPemutar();
+}, 250);
 
 async function pollState() {
   try {

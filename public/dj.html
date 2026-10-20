@@ -125,6 +125,18 @@
             <p class="deck__artist" id="nowArtist"></p>
             <p class="deck__from" id="nowFrom"></p>
             <p class="deck__next" id="nextUp" hidden></p>
+            <div class="deck__progress" id="deckProgress" hidden>
+              <div class="deck__bar" id="deckBar" role="progressbar"
+                   aria-label="Posisi lagu yang sedang diputar"
+                   aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                <i id="deckBarIsi"></i>
+              </div>
+              <p class="deck__time" id="deckTime">0:00 / 0:00</p>
+            </div>
+            <p class="deck__stats" id="deckStats" hidden>
+              <span>Antrean <b id="deckAntrean">—</b></span>
+              <span>Sudah diputar <b id="deckDiputar">—</b></span>
+            </p>
           </div>
 
           <div class="deck__chips">

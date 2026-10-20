@@ -14,6 +14,11 @@ const RL_URL = 'https://roowyrmfytbldcdvagbp.supabase.co';
 const RL_KUNCI_PUBLIK =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJvb3d5cm1meXRibGRjZHZhZ2JwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2OTkyMTIsImV4cCI6MjA4NzI3NTIxMn0.y8Cxe1c5tYWW5JGgAxuVNTA6AsK-8gRjb3eii0s5wB0';
 const RL_KANAL = 'requestlagu';
+/* Mode lokal (server di laptop) TIDAK boleh menyentuh kanal produksi: kalau
+ * iya, halaman uji ikut menerima beat acara yang sedang live dan panel uji
+ * mengirim beat-nya ke sana. Di mode lokal semuanya lewat SSE server
+ * lokal. */
+const RL_LOKAL = ['localhost', '127.0.0.1', '::1', ''].includes(location.hostname);
 
 /** Pasang realtime & langgan kanal `requestlagu`.
  *  handler: { onUpdate?() , onBeat?(payload), onOrang?(n), onStatus?(hidup) }
@@ -21,6 +26,7 @@ const RL_KANAL = 'requestlagu';
  *  (vendor gagal dimuat, jaringan mati, dsb). Semua kegagalan diam: polling
  *  tetap jalan sebagai jaring pengaman. */
 function RLsambung(handler) {
+  if (RL_LOKAL) return null; // mode lokal: SSE server lokal yang menangani
   if (!window.supabase || typeof window.supabase.createClient !== 'function') return null;
   try {
     const sb = window.supabase.createClient(RL_URL, RL_KUNCI_PUBLIK, {
