@@ -113,8 +113,12 @@ function loadSecret() {
 /* ------------------------------------------- penyimpanan mode daring (Supabase & Redis) */
 
 /**
- * Penyimpanan daring mendukung Supabase (prioritas 1, tanpa batasan bandwidth sempit)
- * dan Upstash Redis / Vercel KV (prioritas 2, protokol REST).
+ * Penyimpanan daring memakai dua lapis:
+ * - Redis (Upstash REST / Vercel KV) = STORE PANAS. Satu perintah GET/SET,
+ *   jauh lebih murah dan lebih cepat dari PostgREST, jadi dipakai untuk
+ *   setiap pembacaan state dan setiap kunci tulis.
+ * - Supabase (PostgREST) = CADANGAN DURABLE. State ditulis ulang ke sini
+ *   supaya data tetap ada walau Redis kosong atau bermasalah.
  */
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -124,7 +128,7 @@ const USE_SUPABASE = Boolean(IS_VERCEL && SUPABASE_URL && SUPABASE_KEY);
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-const USE_REDIS = Boolean(IS_VERCEL && !USE_SUPABASE && REDIS_URL && REDIS_TOKEN);
+const USE_REDIS = Boolean(IS_VERCEL && REDIS_URL && REDIS_TOKEN);
 
 const STATE_KEY = 'requestlagu:state';
 const LOCK_KEY = 'requestlagu:lock';
@@ -136,34 +140,38 @@ let stateSiap = false; // state request ini benar-benar termuat dari cloud?
 
 const RL_KANAL = 'requestlagu';
 
-/** Umumkan lewat Supabase Realtime (HTTP) bahwa state berubah. Halaman tamu &
- *  panel DJ berlangganan kanal ini supaya UI menyegarkan dirinya SEKETIKA —
- *  bukan menunggu detak polling 2,5 detik. Pemanggilannya tidak ditunggu
- *  (fire-and-forget): kalau realtime mati, polling tetap jalan apa adanya.
- *  Kunci yang dipakai di sini kunci servis (hanya di server); klien memakai
- *  kunci publik yang tunduk pada RLS (tidak membocorkan apa pun). */
-async function pakanRealtime(versiBaru) {
+/** Kirim satu event ke semua klien lewat Supabase Realtime (HTTP).
+ *  WAJIB di-await oleh pemanggil: container Vercel boleh dibekukan tepat
+ *  setelah response dikirim, jadi fetch "fire-and-forget" bisa tertahan
+ *  detik-detik (terukur 2,7–4,7 detik) atau hilang sama sekali. */
+async function kirimRealtime(namaEvent, muatan) {
   if (!USE_SUPABASE) return;
   try {
-    // HARUS di-awAIT oleh pemanggil + diberi batas waktu: container Vercel boleh
-    // dibekukan tepat setelah response dikirim, jadi fetch "fire-and-forget"
-    // bisa tertahan sampai detik berikutnya (terukur: 2,7–4,7 detik) atau tidak
-    // terkirim sama sekali. Uji terpisah membuktikan endpoint broadcast itu
-    // cepat (75–240 ms) — yang telat adalahfetch dari dalam function.
-    const r = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast/${RL_KANAL}/events/update`, {
+    const r = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast/${RL_KANAL}/events/${namaEvent}`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_KEY,
         authorization: `Bearer ${SUPABASE_KEY}`,
         'content-type': 'application/json',
       },
-      body: JSON.stringify({ v: versiBaru }),
+      body: JSON.stringify(muatan),
       signal: AbortSignal.timeout(1500),
     });
-    if (!r.ok) console.warn(`Broadcast realtime HTTP ${r.status} (v=${versiBaru})`);
+    if (!r.ok) console.warn(`Broadcast realtime HTTP ${r.status} (${namaEvent})`);
   } catch (err) {
-    console.warn(`Broadcast realtime meleset: ${err && err.message}`);
+    console.warn(`Broadcast realtime meleset (${namaEvent}): ${err && err.message}`);
   }
+}
+
+/** Umumkan state terbaru ke semua klien dalam SATU event.
+ *  Isinya bukan sekadar "ada perubahan" — state-nya ikut dikirim, jadi
+ *  halaman tamu bisa langsung memakai data baru tanpa menarik ulang dari
+ *  server (memotong satu putaran jaringan dari syarat "paling cepat").
+ *  Klien lama tetap berfungsi: mereka tetap mendengarkan event `update` lalu
+ *  menarik ulang seperti biasa, karena isinya tidak berubah bagi mereka. */
+async function umumkanState() {
+  if (!USE_SUPABASE) return;
+  await kirimRealtime('update', { v: state.versi, state: publicStateRamping() });
 }
 
 /* --- Supabase (PostgREST) --- */
@@ -258,10 +266,10 @@ async function loadStateSupabase() {
   }
 }
 
-async function saveStateSupabase() {
-  // Penyimpanan = gerbang mutasi yang menempel ke awan, jadi kenaikan nomor
-  // versi di sini mewakili SEMUA jalur perubahan (antrean, vote, detak panel).
-  state.versi = (state.versi || 0) + 1;
+/** Tulis state ke cadangan durable Supabase (PostgREST).
+ *  Tidak menaikkan versi dan tidak menyiarkan apa pun — tugas itu milik
+ *  saveStateRemote() supaya ada SATU tempat yang mengatur nomor versi. */
+async function simpanCadanganSupabase() {
   const url = `${SUPABASE_URL}/rest/v1/app_state`;
   const res = await fetch(url, {
     method: 'POST',
@@ -281,11 +289,6 @@ async function saveStateSupabase() {
     const errText = await res.text().catch(() => '');
     throw new Error(`Supabase UPSERT -> HTTP ${res.status}: ${errText}`);
   }
-  // WAJIB ditunggu (bukan fire-and-forget!): setelah response dikirim, container
-  // Vercel bisa langsung dibekukan — broadcast yang belum terkirim akan molor
-  // beberapa detik atau hilang sama sekali (telah terukur di produksi).
-  // Batas 1,5 detik sudah dipasang di dalam pakanRealtime() lewat AbortSignal.
-  await pakanRealtime(state.versi);
 }
 
 /* --- Redis (Upstash) --- */
@@ -337,31 +340,80 @@ async function saveStateRedis() {
 }
 
 /* --- Dispatcher Penyimpanan Daring --- */
+/* Kunci ditulis berbeda per backend, jadi token diberi awalan agar pelepasan
+ * kunci tahu harus ke backend mana: 'r:' = Redis, 's:' = Supabase. */
 
 async function ambilKunci() {
   if (!IS_VERCEL) return { ok: true, token: 'lokal' };
-  if (USE_SUPABASE) return ambilKunciSupabase();
-  if (USE_REDIS) return ambilKunciRedis();
+  // Redis dulu: satu perintah, jauh lebih cepat dari dua panggilan PostgREST.
+  if (USE_REDIS) {
+    const r = await ambilKunciRedis();
+    if (r.ok) return { ok: true, token: `r:${r.token}` };
+    console.error('Kunci Redis gagal, mencoba Supabase:', r.error || r.reason);
+  }
+  if (USE_SUPABASE) {
+    const s = await ambilKunciSupabase();
+    if (s.ok) return { ok: true, token: `s:${s.token}` };
+    return s;
+  }
   return { ok: true, token: 'lokal' };
 }
 
 async function lepasKunci(token) {
   if (!token || token === 'lokal') return;
-  if (USE_SUPABASE) return lepasKunciSupabase(token);
-  if (USE_REDIS) return lepasKunciRedis(token);
+  if (token.startsWith('r:')) return lepasKunciRedis(token.slice(2));
+  if (token.startsWith('s:')) return lepasKunciSupabase(token.slice(2));
 }
 
 async function loadStateRemote() {
   if (!IS_VERCEL) return { ok: true, state: null, lokal: true };
+  // Store panas: satu GET ke Redis.
+  if (USE_REDIS) {
+    const r = await loadStateRedis();
+    if (r.ok && r.state) return { ok: true, state: r.state };
+    if (!r.ok) console.error('Redis tidak terbaca, lanjut ke Supabase:', r.error);
+    // Redis kosong (mis. baru dinyalakan) → ambil dari cadangan, lalu semai Redis.
+    if (USE_SUPABASE) {
+      const s = await loadStateSupabase();
+      if (s.ok && s.state) {
+        try { await redis('SET', STATE_KEY, JSON.stringify(s.state)); }
+        catch (err) { console.error('Gagal menyemai Redis:', err.message); }
+      }
+      return s;
+    }
+    return { ok: true, state: null };
+  }
   if (USE_SUPABASE) return loadStateSupabase();
-  if (USE_REDIS) return loadStateRedis();
   return { ok: true, state: null, lokal: true };
 }
 
 async function saveStateRemote() {
   if (!IS_VERCEL) return;
-  if (USE_SUPABASE) return saveStateSupabase();
-  if (USE_REDIS) return saveStateRedis();
+  // Penyimpanan = gerbang mutasi, jadi kenaikan nomor versi di sini
+  // mewakili SEMUA jalur perubahan (antrean, vote, pengaturan acara).
+  state.versi = (state.versi || 0) + 1;
+  let tersimpan = false;
+  if (USE_REDIS) {
+    try {
+      await redis('SET', STATE_KEY, JSON.stringify(state));
+      tersimpan = true;
+    } catch (err) {
+      console.error('Gagal menyimpan ke Redis:', err.message);
+    }
+  }
+  if (USE_SUPABASE) {
+    try {
+      await simpanCadanganSupabase();
+      tersimpan = true;
+    } catch (err) {
+      console.error('Gagal menyimpan cadangan ke Supabase:', err.message);
+    }
+  }
+  if (!tersimpan) throw new Error('Tidak ada store yang bisa menyimpan state');
+  // Umumkan ke semua klien. WAJIB ditunggu: container Vercel bisa langsung
+  // dibekukan setelah response, jadi broadcast yang belum terkirim akan molor
+  // beberapa detik atau hilang (terukur 2,7–4,7 detik di produksi).
+  await umumkanState();
 }
 
 let saveTimer = null;
@@ -415,6 +467,20 @@ function broadcastBeat(payload) {
       sseClients.delete(res);
     }
   }
+}
+
+/** Bentuk state untuk dikirim ke klien: antrean, lagu yang sedang diputar, dan
+ *  riwayat terbaru saja. Riwayat lama tidak pernah tampil di layar, tapi dulu
+ *  ikut terunggah setiap kali (21 KB saat antrean 68 lagu). Dipakai untuk
+ *  response /api/state dan untuk isi event realtime. */
+function publicStateRamping() {
+  const p = publicState();
+  const semua = Array.isArray(state.tracks) ? state.tracks : [];
+  const antrian = semua.filter((t) => t.status === 'queued' || t.status === 'playing');
+  const selesai = semua.filter((t) => t.status === 'done').slice(-12);
+  const ditolak = semua.filter((t) => t.status === 'rejected').slice(-8);
+  p.tracks = antrian.concat(selesai, ditolak);
+  return p;
 }
 
 function publicState() {
@@ -574,9 +640,14 @@ const MIME = {
   '.webp': 'image/webp',
 };
 
-function sendJson(res, code, obj) {
+/** Kirim JSON. `cacheControl` opsional: dipakai untuk response yang aman
+ *  di-cache edge Vercel (mis. state acara yang juga disiarkan lewat realtime). */
+function sendJson(res, code, obj, cacheControl) {
   const body = JSON.stringify(obj);
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  res.writeHead(code, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': cacheControl || 'no-store',
+  });
   res.end(body);
 }
 
@@ -1023,11 +1094,11 @@ async function handleApi(req, res, url) {
 
   /* --- publik --- */
   if (method === 'GET' && p === '/api/state') {
-    if (IS_VERCEL) {
-      // Cache di Edge CDN Vercel selama 2 detik untuk menghemat kuota cloud storage
-      res.setHeader('Cache-Control', 's-maxage=2, stale-while-revalidate=4');
-    }
-    return sendJson(res, 200, publicState());
+    // Aman di-cache edge 2 detik: state yang lebih baru ikut dikirim lewat
+    // event realtime, jadi tamu tidak perlu menarik ulang tiap perubahan.
+    // (Dulu header ini ketimpa `no-store` sehingga edge selalu MISS.)
+    return sendJson(res, 200, publicStateRamping(),
+      'public, s-maxage=2, stale-while-revalidate=4');
   }
 
   if (method === 'GET' && p === '/api/songs') {

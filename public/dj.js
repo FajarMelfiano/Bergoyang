@@ -935,7 +935,10 @@ let rtDjAktif = false;
 function pasangRealtime() {
   if (!window.RLReal) return;
   realDj = window.RLReal.sambung({
-    onUpdate: () => { pollState(); }, // dorongan instan dari server
+    // State ikut dikirim di dalam event, jadi panel tidak perlu menarik ulang
+    // dari server setiap ada perubahan.
+    onState: (baru) => { if (baru) applyState(JSON.stringify(baru)); },
+    onUpdate: () => { pollState(); }, // cadangan: server tanpa state
     onOrang: (n) => {
       const el = $('orangOnline');
       if (!el) return;
@@ -946,7 +949,7 @@ function pasangRealtime() {
       rtDjAktif = hidup;
       // setel ulang detak polling sesuai kondisi realtime (kecuali tab tersembunyi)
       if (pollTimer && !document.hidden) {
-        pollInterval = hidup ? 6000 : 2500;
+        pollInterval = hidup ? 20000 : 2500;
         clearInterval(pollTimer);
         pollTimer = setInterval(pollState, pollInterval);
       }
@@ -974,10 +977,10 @@ async function pollState() {
     const res = await fetch('/api/state');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     applyState(await res.text());
-    // Kembali ke frekuensi normal bila pulih — tapi kalau realtime hidup,
-    // 6 detik sudah cukup (event realtime yang mendorong kesegaran).
-    if (pollInterval > (rtDjAktif ? 6000 : 2500) && !document.hidden) {
-      pollInterval = rtDjAktif ? 6000 : 2500;
+    // Kembali ke frekuensi normal bila pulih — kalau realtime hidup, state
+    // datang lewat push, jadi polling cukup jadi jaring pengaman (20 detik).
+    if (pollInterval > (rtDjAktif ? 20000 : 2500) && !document.hidden) {
+      pollInterval = rtDjAktif ? 20000 : 2500;
       clearInterval(pollTimer);
       pollTimer = setInterval(pollState, pollInterval);
     }
@@ -1003,7 +1006,7 @@ function startPolling() {
       pollTimer = setInterval(pollState, 30000); // 30 detik di background
     } else {
       clearInterval(pollTimer);
-      pollInterval = rtDjAktif ? 6000 : 2500;
+      pollInterval = rtDjAktif ? 20000 : 2500;
       pollState();
       pollTimer = setInterval(pollState, pollInterval);
     }

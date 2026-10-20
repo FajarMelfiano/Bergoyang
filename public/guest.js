@@ -737,7 +737,7 @@ function startPolling() {
       pollTimer = setInterval(tarikState, 30000); // 30 detik saat tab diminimalkan
     } else {
       clearInterval(pollTimer);
-      aturPoll(rtAktif ? 6000 : 2500);
+      aturPoll(rtAktif ? 20000 : 2500);
       tarikState();
       pollTimer = setInterval(tarikState, pollInterval);
     }
@@ -767,7 +767,10 @@ setInterval(() => {
 function pasangRealtime() {
   if (!window.RLReal) return;
   window.RLReal.sambung({
-    onUpdate: () => { if (pollTick) pollTick(); }, // dorongan instan dari server
+    // State ikut dikirim di dalam event, jadi layar berubah tanpa menunggu
+    // respons server — inilah yang bikin tamu terasa instan.
+    onState: (baru) => { if (baru) applyState(baru); },
+    onUpdate: () => { if (pollTick) pollTick(); }, // cadangan: server tanpa state
     onBeat: setelBeat,
     onOrang: (n) => {
       const el = $('orangOnline');
@@ -777,10 +780,11 @@ function pasangRealtime() {
     },
     onStatus: (hidup) => {
       rtAktif = hidup;
-      // realtime hidup → polling melambat (hanya jaring pengaman);
-      // realtime mati → polling kembali 2,5 detik seperti biasa
-      if (pollTimer) aturPoll(hidup ? 6000 : 2500);
-      else pollInterval = hidup ? 6000 : 2500;
+      // Realtime hidup → state datang lewat push, jadi polling cukup jadi
+      // jaring pengaman jauh-jauh (20 detik). Realtime mati → polling cepat
+      // (2,5 detik) supaya layar tetap tertinggal sedikit saja.
+      if (pollTimer) aturPoll(hidup ? 20000 : 2500);
+      else pollInterval = hidup ? 20000 : 2500;
     },
   });
 }

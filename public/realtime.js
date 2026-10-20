@@ -30,11 +30,17 @@ function RLsambung(handler) {
       ('tab' + Math.random().toString(36).slice(2) + Date.now().toString(36));
     const kanal = sb.channel(RL_KANAL, { config: { presence: { key: identitas } } });
 
-    if (handler.onUpdate) {
-      kanal.on('broadcast', { event: 'update' }, () => {
-        try { handler.onUpdate(); } catch { /* abaikan */ }
-      });
-    }
+    // Event 'update' membawa state lengkap, bukan hanya tanda "ada perubahan",
+    // jadi klien bisa memakainya langsung tanpa menarik ulang dari server.
+    // Kalau payloadnya tidak punya state (server versi lama), klien menarik
+    // ulang seperti biasa — dua jalur ini tetap kompatibel.
+    kanal.on('broadcast', { event: 'update' }, (pesan) => {
+      try {
+        const muatan = (pesan && pesan.payload) || {};
+        if (muatan.state && handler.onState) handler.onState(muatan.state);
+        else if (handler.onUpdate) handler.onUpdate();
+      } catch { /* abaikan */ }
+    });
     if (handler.onBeat) {
       kanal.on('broadcast', { event: 'beat' }, (pesan) => {
         try { handler.onBeat((pesan && pesan.payload) || {}); } catch { /* abaikan */ }
