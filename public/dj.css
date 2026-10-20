@@ -135,6 +135,27 @@
   border-bottom-color: var(--line);
   padding: 8px;
 }
+/* select native di panel gelap: tanpa warna eksplisit, dropdown-nya bisa
+   terang di Windows dark mode. */
+.console .field select {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.34);
+  border: 1px solid var(--line);
+  border-radius: var(--radius, 3px);
+  padding: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  width: 100%;
+}
+.console .field select:focus-visible {
+  border-color: var(--amber);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(246, 166, 35, 0.35);
+}
+.console .field select option {
+  color: var(--text);
+  background: #17121e;
+}
 .usermenu .field input::placeholder,
 .console .field input::placeholder { color: rgba(237, 230, 216, 0.6); }
 .usermenu .field input:focus,

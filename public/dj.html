@@ -144,7 +144,7 @@
                   title="Mesin pemutar di panel DJ ini">Player: nonaktif</span>
             <span class="chip" id="kendaliChip" data-tone="off"
                   title="Device mana yang memutar lagu untuk semua tamu">Pemutar: belum diatur</span>
-            <span class="chip" id="wakeChip" data-tone="stale" hidden
+            <span class="chip" id="wakeChip" data-tone="stale" hidden role="status"
                   title="Layar panel ini tidak akan padat sendiri selama acara">Layar dijaga</span>
           </div>
 
@@ -193,7 +193,7 @@
           </div>
           <div class="field field--sm">
             <label for="evMaksDurasi">Batas durasi lagu (menit)</label>
-            <input id="evMaksDurasi" type="number" min="0" max="120" step="1" placeholder="0" />
+            <input id="evMaksDurasi" type="number" min="0" max="120" step="1" placeholder="0" autocomplete="off" />
             <p class="hint">0 = tanpa batas. Lagu yang lebih lama dari ini diberi tanda di antrean.</p>
           </div>
           <div class="field field--sm">
