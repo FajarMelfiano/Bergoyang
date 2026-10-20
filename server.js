@@ -129,6 +129,12 @@ const USE_SUPABASE = Boolean(IS_VERCEL && SUPABASE_URL && SUPABASE_KEY);
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 const USE_REDIS = Boolean(IS_VERCEL && !USE_SUPABASE && REDIS_URL && REDIS_TOKEN);
+/** Redis sebagai store panas (kunci tulis + baca/tulis state). Nyalakan dengan
+ *  env REDIS_PANAS=1. Semua perintah Redis dibatasi 1,5 detik, jadi kalau
+ *  Redis bermasalah sistem otomatis jatuh ke Supabase — tidak menggantung. */
+const PAKAI_REDIS_PANAS = Boolean(
+  IS_VERCEL && process.env.REDIS_PANAS === '1' && REDIS_URL && REDIS_TOKEN
+);
 
 const STATE_KEY = 'requestlagu:state';
 const LOCK_KEY = 'requestlagu:lock';
@@ -350,6 +356,11 @@ async function saveStateRedis() {
 
 async function ambilKunci() {
   if (!IS_VERCEL) return { ok: true, token: 'lokal' };
+  if (PAKAI_REDIS_PANAS) {
+    const r = await ambilKunciRedis();
+    if (r.ok) return { ok: true, token: `r:${r.token}` };
+    console.error('Kunci Redis gagal, lanjut ke Supabase:', r.error || r.reason);
+  }
   if (USE_SUPABASE) {
     const s = await ambilKunciSupabase();
     if (s.ok) return { ok: true, token: `s:${s.token}` };
@@ -371,6 +382,21 @@ async function lepasKunci(token) {
 
 async function loadStateRemote() {
   if (!IS_VERCEL) return { ok: true, state: null, lokal: true };
+  if (PAKAI_REDIS_PANAS) {
+    const r = await loadStateRedis();
+    if (r.ok && r.state) return { ok: true, state: r.state };
+    if (!r.ok) console.error('Redis tidak terbaca, lanjut ke Supabase:', r.error);
+    // Redis kosong → ambil dari cadangan durable, lalu semai Redis.
+    if (USE_SUPABASE) {
+      const s = await loadStateSupabase();
+      if (s.ok && s.state) {
+        try { await redis('SET', STATE_KEY, JSON.stringify(s.state)); }
+        catch (err) { console.error('Gagal menyemai Redis:', err.message); }
+      }
+      return s;
+    }
+    return { ok: true, state: null };
+  }
   if (USE_SUPABASE) return loadStateSupabase();
   if (USE_REDIS) return loadStateRedis();
   return { ok: true, state: null, lokal: true };
@@ -381,7 +407,19 @@ async function saveStateRemote() {
   // Penyimpanan = gerbang mutasi, jadi kenaikan nomor versi di sini
   // mewakili SEMUA jalur perubahan (antrean, vote, pengaturan acara).
   state.versi = (state.versi || 0) + 1;
-  if (USE_SUPABASE) {
+  if (PAKAI_REDIS_PANAS) {
+    let amanRedis = false;
+    try {
+      await redis('SET', STATE_KEY, JSON.stringify(state));
+      amanRedis = true;
+    } catch (err) {
+      console.error('Gagal menyimpan ke Redis:', err.message);
+    }
+    // Cadangan durable tetap ditulis ke Supabase (dibaca balik kalau Redis
+    // kosong), jadi data utama tidak pernah hanya hidup di satu tempat.
+    if (USE_SUPABASE) await simpanCadanganSupabase();
+    if (!amanRedis && !USE_SUPABASE) throw new Error('Gagal menyimpan state');
+  } else if (USE_SUPABASE) {
     await simpanCadanganSupabase(); // gagal = mutasi gagal, klien diberi tahu
   } else if (USE_REDIS) {
     await saveStateRedis();
@@ -695,6 +733,9 @@ function sendJson(res, code, obj, cacheControl) {
 }
 
 function readBody(req, limit = 64 * 1024) {
+  // Body boleh dibaca lebih dari sekali (mis. pengecekan cepat sebelum
+  // handler jalan) — hasil pertama disimpan di req.
+  if (req._bodySudahDibaca) return Promise.resolve(req._bodySudahDibaca);
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
@@ -708,9 +749,11 @@ function readBody(req, limit = 64 * 1024) {
       chunks.push(c);
     });
     req.on('end', () => {
-      if (!chunks.length) return resolve({});
+      if (!chunks.length) { req._bodySudahDibaca = {}; return resolve({}); }
       try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        req._bodySudahDibaca = parsed;
+        resolve(parsed);
       } catch {
         reject(Object.assign(new Error('JSON tidak valid'), { status: 400 }));
       }
@@ -1895,6 +1938,47 @@ async function serve(req, res) {
       return sendJson(res, 200, { files: audioFiles() });
     }
 
+    /* --- Diagnostik (admin) ---
+     * Mengukur latensi masing-masing layanan dari sisi server Vercel, supaya
+     * keputusan "pakai Redis atau tidak" berdasar angka, bukan dugaan. */
+    if (url.pathname === '/api/diagnostik') {
+      if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+      const hasil = {};
+      const tR = Date.now();
+      try {
+        await redis('PING');
+        hasil.redis = { ok: true, ms: Date.now() - tR };
+      } catch (err) {
+        hasil.redis = { ok: false, ms: Date.now() - tR, pesan: String(err.message || err) };
+      }
+      const tS = Date.now();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/app_state?key=eq.${STATE_KEY}&select=updated_at`, {
+          headers: { apikey: SUPABASE_KEY, authorization: `Bearer ${SUPABASE_KEY}`, accept: 'application/json' },
+          signal: AbortSignal.timeout(4000),
+        });
+        await r.text();
+        hasil.supabaseBaca = { ok: r.ok, ms: Date.now() - tS };
+      } catch (err) {
+        hasil.supabaseBaca = { ok: false, ms: Date.now() - tS, pesan: String(err.message || err) };
+      }
+      const tB = Date.now();
+      try {
+        const r = await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast/${RL_KANAL}/events/diagnostik`, {
+          method: 'POST',
+          headers: { apikey: SUPABASE_KEY, authorization: `Bearer ${SUPABASE_KEY}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ v: state.versi || 0 }),
+          signal: AbortSignal.timeout(4000),
+        });
+        await r.text();
+        hasil.broadcast = { ok: r.ok, ms: Date.now() - tB };
+      } catch (err) {
+        hasil.broadcast = { ok: false, ms: Date.now() - tB, pesan: String(err.message || err) };
+      }
+      hasil.waktuServer = Date.now();
+      return sendJson(res, 200, hasil);
+    }
+
     if (url.pathname === '/api/yt-search') {
       if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
       const q = clean(url.searchParams.get('q'), 160);
@@ -1927,21 +2011,40 @@ async function processRequest(req, res) {
   stateSiap = !IS_VERCEL; // mode lokal: state sudah dimuat dari berkas
 
   if (IS_VERCEL && (req.url || '').startsWith('/api/')) {
+    const jalurApi = String(req.url || '').split('?')[0];
+    // Detak panel DJ: status pemutar dikirim ulang tiap beberapa detik.
+    // Kalau isinya sama dengan yang terakhir diketahui, ini hanya "detak
+    // jantung" — tidak perlu kunci tulis, tidak perlu baca store, tidak
+    // perlu menulis ulang state. Inilah yang menjaga antrean tetap lega
+    // saat acara ramai (dulu tiap detak menambah satu putaran penuh).
+    if (req.method === 'POST' && jalurApi === '/api/player/status') {
+      try {
+        const body = await readBody(req);
+        const cur = state.player || {};
+        const panel = clean(body.panel, 40);
+        const sama = (panel || cur.panel || '') === (cur.panel || '')
+          && (clean(body.status, 24) || 'siap') === (cur.status || 'siap')
+          && clean(body.detail, 200) === (cur.detail || '')
+          && clean(body.trackId, 64) === (cur.trackId || '');
+        if (sama) return sendJson(res, 200, { ok: true });
+      } catch { /* lanjut ke jalur mutasi biasa */ }
+    }
     // Request yang mengubah data harus memegang kunci supaya tidak menimpa
     // instance lain yang sedang menyimpan hasil-nya.
     const mauUbah = req.method !== 'GET' && req.method !== 'HEAD';
     let kunci = null;
     if (mauUbah) {
-      // Tunggu hanya kalau kuncinya memang dipegang instance lain. Kalau
-      // Redis-nya error, langsung menyerah supaya tidak menambah 2 detik
-      // penundaan pada setiap request.
-      for (let i = 0; i < 10; i++) {
+      // Tunggu kalau kuncinya dipegang instance lain. Jendela tunggunya
+      // sengaja lebih panjang (25 × 150 ms ≈ 3,8 detik): saat acara ramai
+      // banyak mutasi berebut kunci, dan gagal terlalu cepat membuat DJ
+      // menerima 503 padahal antrean sebenarnya hanya sebentar.
+      for (let i = 0; i < 25; i++) {
         const kunciRes = await ambilKunci();
         if (kunciRes.ok) { kunci = kunciRes.token; break; }
         if (kunciRes.reason === 'redis') {
           return sendJson(res, 503, { error: 'Data acara sedang tidak terbaca. Coba lagi sebentar.' });
         }
-        await new Promise((r) => setTimeout(r, 200));
+        await new Promise((r) => setTimeout(r, 150));
       }
       if (!kunci) {
         return sendJson(res, 503, { error: 'Server sedang sibuk. Coba lagi sebentar.' });
