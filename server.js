@@ -48,6 +48,11 @@ const DEFAULT_EVENT = {
   open: true,
   allowVotes: true,
   allowMessages: true,
+  // Batas durasi lagu untuk acara ini. 0 = tanpa batas.
+  maksDurasiMenit: 0,
+  // 'tandai' = lagu yang melebihi batas tetap masuk tapi ditandai;
+  // 'tolak'  = request-nya ditolak dengan alasan yang jelas.
+  perlakuanDurasiPanjang: 'tandai',
 };
 
 let state = loadState();
@@ -57,6 +62,11 @@ const songs = loadSongs();
 function normalizeState(parsed) {
   parsed = parsed && typeof parsed === 'object' ? parsed : {};
   parsed.event = { ...DEFAULT_EVENT, ...(parsed.event || {}) };
+  // batas durasi: angka rapi, perlakuan hanya dua nilai yang sah
+  parsed.event.maksDurasiMenit = Math.max(0, Math.min(120, Number(parsed.event.maksDurasiMenit) || 0));
+  if (!['tandai', 'tolak'].includes(parsed.event.perlakuanDurasiPanjang)) {
+    parsed.event.perlakuanDurasiPanjang = DEFAULT_EVENT.perlakuanDurasiPanjang;
+  }
   parsed.tracks = Array.isArray(parsed.tracks) ? parsed.tracks : [];
   for (const t of parsed.tracks) {
     if (t.votes == null || typeof t.votes !== 'object') t.votes = {};
@@ -582,12 +592,14 @@ function hitungStatistik(dariState = state) {
   let antreanLagu = 0; let antreanDetik = 0; let antreanDiketahui = 0;
   let diputarLagu = 0; let diputarDetik = 0; let diputarDiketahui = 0;
   let durasiDiketahui = 0;
+  let berlebihan = 0; // lagu di antrean yang melewati batas durasi acara
   for (const t of dariState.tracks || []) {
     const dur = durasiKeDetik(t.dur);
     if (dur > 0) durasiDiketahui += 1;
     if (t.status === 'queued') {
       antreanLagu += 1; antreanDetik += dur;
       if (dur > 0) antreanDiketahui += 1;
+      if (t.melebihiBatas) berlebihan += 1;
     } else if (t.status === 'done') {
       diputarLagu += 1; diputarDetik += dur;
       if (dur > 0) diputarDiketahui += 1;
@@ -597,6 +609,7 @@ function hitungStatistik(dariState = state) {
     antrean: { lagu: antreanLagu, detik: antreanDetik, durasiDiketahui: antreanDiketahui },
     diputar: { lagu: diputarLagu, detik: diputarDetik, durasiDiketahui: diputarDiketahui },
     durasiDiketahui,
+    berlebihan,
   };
 }
 
@@ -609,6 +622,8 @@ function publicState(dariState = state) {
       open: dariState.event.open,
       allowVotes: dariState.event.allowVotes,
       allowMessages: dariState.event.allowMessages,
+      maksDurasiMenit: dariState.event.maksDurasiMenit || 0,
+      perlakuanDurasiPanjang: dariState.event.perlakuanDurasiPanjang || 'tandai',
     },
     tracks: dariState.tracks,
     order,
@@ -881,6 +896,38 @@ function ytId(input) {
 
 function findTrack(id) {
   return state.tracks.find((t) => t.id === id) || null;
+}
+
+/** Lagu yang sama persis (video id sama) yang masih menunggu atau sedang
+ *  diputar. Lagu yang sudah selesai tidak dihitung — request ulang setelah
+ *  lagu selesai itu wajar. */
+function cariLaguSama(yt) {
+  if (!yt) return null;
+  return state.tracks.find(
+    (t) => t.yt === yt && (t.status === 'queued' || t.status === 'playing'),
+  ) || null;
+}
+
+/** Jawab request lagu yang sudah ada di antrean: tidak dibuat duplikat,
+ *  tapi keinginkan peminta tetap dihitung lewat vote (kalau voting dibuka). */
+function kirimDuplikat(res, track, deviceId) {
+  let sudahVote = false;
+  if (state.event.allowVotes && track.votes && !track.votes[deviceId]) {
+    sudahVote = true;
+    mutate(() => { track.votes[deviceId] = 1; });
+  }
+  const antrean = antreanUrut(state.tracks.filter((t) => t.status === 'queued'));
+  const posisi = antrean.findIndex((t) => t.id === track.id) + 1;
+  return sendJson(res, 200, {
+    duplikat: true,
+    track,
+    status: track.status,
+    posisi: posisi > 0 ? posisi : 0,
+    sudahVote,
+    catatan: track.status === 'playing'
+      ? 'Lagu ini sedang diputar.'
+      : `Lagu ini sudah ada di antrean${posisi > 0 ? ` (posisi #${posisi})` : ''}.`,
+  });
 }
 
 function playingTrack() {
@@ -1305,6 +1352,20 @@ async function handleApi(req, res, url) {
 
   if (method === 'POST' && p === '/api/request') {
     const body = await readBody(req);
+    const sesi = djSesi(req);
+    if (!sesi) return sendJson(res, 401, { error: 'Kamu harus masuk dulu untuk request lagu.' });
+    const deviceId = sesi.username; // identitas request = username yang login
+
+    // Dedupe: lagu yang video id-nya sama persis tidak diantrekan dua kali.
+    // Dicek lebih dulu (kalau tamu menempel link, id-nya sudah ada tanpa perlu
+    // mencari YouTube) supaya jawabannya "sudah ada di antrean" — bukan
+    // "antrean penuh".
+    const ytDiminta = ytId(body.yt);
+    if (ytDiminta) {
+      const sama = cariLaguSama(ytDiminta);
+      if (sama) return kirimDuplikat(res, sama, deviceId);
+    }
+
     if (!state.event.open) {
       // Bedakan tutup manual oleh DJ dengan tutup otomatis karena antrean penuh
       const penuh = state.tracks.filter((t) => t.status === 'queued').length >= BATAS_REQUEST;
@@ -1315,11 +1376,6 @@ async function handleApi(req, res, url) {
         penuh,
       });
     }
-
-    // Halaman tamu sekarang privat: hanya user terdaftar yang boleh request.
-    const sesi = djSesi(req);
-    if (!sesi) return sendJson(res, 401, { error: 'Kamu harus masuk dulu untuk request lagu.' });
-    const deviceId = sesi.username; // identitas request = username yang login
 
     // Batas antrean: begitu mencapai BATAS_REQUEST, request otomatis ditutup
     // supaya tamu tidak menumpuk lagu tanpa batas. DJ yang membuka lagi.
@@ -1346,7 +1402,7 @@ async function handleApi(req, res, url) {
 
     // Setiap request WAJIB punya sumber lagu: pakai link tempelan tamu,
     // atau cari otomatis di YouTube dari judul + artis.
-    let yt = ytId(body.yt);
+    let yt = ytDiminta;
     // Durasi ikut dikirim tamu dari hasil pencarian (dalam detik). Kalau tamu
     // mengetik judul manual, server ambil sendiri dari hasil pencarian YouTube.
     let dur = durasiKeDetik(body.dur);
@@ -1361,6 +1417,24 @@ async function handleApi(req, res, url) {
           error: 'Sumber lagu tidak ditemukan otomatis. Tulis judul lebih spesifik atau tempel link YouTube-nya.',
         });
       }
+      // Lagu yang ketemu otomatis juga bisa saja sudah ada di antrean.
+      const sama = cariLaguSama(yt);
+      if (sama) return kirimDuplikat(res, sama, deviceId);
+    }
+
+    // Batas durasi acara: DJ boleh menetapkan lama maksimal lagu.
+    // Mode 'tolak' → request ditolak dengan alasan; mode 'tandai' → tetap
+    // masuk antrean tapi ditandai, jadi DJ bisa memutuskan sendiri.
+    const maksDetik = (Number(state.event.maksDurasiMenit) || 0) * 60;
+    let melebihiBatas = false;
+    if (maksDetik > 0 && dur > maksDetik) {
+      if (state.event.perlakuanDurasiPanjang === 'tolak') {
+        return sendJson(res, 403, {
+          error: `Lagu ini ${Math.round(dur / 60)} menit, sedangkan batas acara ${state.event.maksDurasiMenit} menit. Pilih lagu yang lebih pendek ya.`,
+          melebihiBatas: true,
+        });
+      }
+      melebihiBatas = true;
     }
 
     const track = {
@@ -1380,6 +1454,7 @@ async function handleApi(req, res, url) {
       status: 'queued',
       createdAt: Date.now(),
       dur, // durasi lagu dalam detik (0 = belum diketahui)
+      melebihiBatas, // melewati batas durasi acara (kalau ada batasnya)
       playedAt: 0,
     };
     // Antrean penuh → request ditutup otomatis. DJ yang membuka kembali.
@@ -1388,7 +1463,16 @@ async function handleApi(req, res, url) {
       state.tracks.push(track);
       if (penuh) state.event.open = false;
     });
-    return sendJson(res, 201, { track, status: track.status, penuh });
+    return sendJson(res, 201, {
+      track,
+      status: track.status,
+      penuh,
+      melebihiBatas,
+      // Catatan untuk tamu kalau lagunya melewati batas durasi acara.
+      catatan: melebihiBatas
+        ? `Lagu ini ${Math.round(dur / 60)} menit, melewati batas ${state.event.maksDurasiMenit} menit untuk acara ini — DJ yang memutuskan.`
+        : '',
+    });
   }
 
   if (method === 'POST' && p === '/api/vote') {
@@ -1764,13 +1848,17 @@ async function handleApi(req, res, url) {
     }
 
     if (method === 'PATCH' && p === '/api/event') {
-      const allowed = ['name', 'tagline', 'open', 'allowVotes', 'allowMessages'];
+      const allowed = ['name', 'tagline', 'open', 'allowVotes', 'allowMessages', 'maksDurasiMenit', 'perlakuanDurasiPanjang'];
       mutate(() => {
         for (const key of allowed) {
           if (!(key in body)) continue;
           if (key === 'name' || key === 'tagline') {
             const value = clean(body[key], 60);
             if (value) state.event[key] = value;
+          } else if (key === 'maksDurasiMenit') {
+            state.event.maksDurasiMenit = Math.max(0, Math.min(120, Number(body[key]) || 0));
+          } else if (key === 'perlakuanDurasiPanjang') {
+            state.event.perlakuanDurasiPanjang = body[key] === 'tolak' ? 'tolak' : 'tandai';
           } else {
             state.event[key] = Boolean(body[key]);
           }
@@ -1834,7 +1922,13 @@ async function handleApi(req, res, url) {
       const dur = durasiKeDetik(body.dur);
       if (!dur) return sendJson(res, 400, { error: 'Durasi tidak valid.' });
       if (durasiKeDetik(track.dur) !== dur) {
-        mutate(() => { track.dur = dur; });
+        mutate(() => {
+          track.dur = dur;
+          // Durasi asli dari pemutar bisa diketahui belakangan — kalau ternyata
+          // melewati batas acara, tandai juga supaya DJ melihatnya.
+          const maks = (Number(state.event.maksDurasiMenit) || 0) * 60;
+          if (maks > 0 && dur > maks) track.melebihiBatas = true;
+        });
       }
       return sendJson(res, 200, { ok: true, id: track.id, dur });
     }
