@@ -751,7 +751,19 @@ function queueRow(track, number) {
         voteCount ? el('span', { text: `${voteCount} vote` }) : null,
         track.dur ? el('span', { text: jamMenit(track.dur) }) : null,
         track.audio ? el('span', { text: `file: ${track.audio}` }) : null,
-        track.yt && !track.audio ? el('span', { text: 'sumber: YouTube' }) : null,
+        track.yt && !track.audio
+          // Video yang dipilih tamu (dari suggestion) ditampilkan apa adanya:
+          // id-nya bisa diklik untuk langsung membuka video itu di YouTube,
+          // jadi DJ tidak perlu menebak videonya yang mana.
+          ? el('a', {
+            class: 'row__yt',
+            href: `https://www.youtube.com/watch?v=${track.yt}`,
+            target: '_blank',
+            rel: 'noopener',
+            title: `Buka video ini di YouTube (${track.yt})`,
+            text: `sumber: YouTube · ${track.yt}`,
+          })
+          : null,
         !track.yt && !track.audio ? el('span', { text: 'belum ada sumber' }) : null,
         tagLabel ? el('span', { class: 'row__tag', 'data-tone': tagTone, text: tagLabel }) : null,
         // Lagu yang melewati batas durasi acara → ditandai, DJ yang memutuskan.

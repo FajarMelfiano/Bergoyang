@@ -817,6 +817,16 @@
 .console .row[data-status="playing"] .row__no { color: var(--amber); }
 .console .row__title { font-size: 0.98rem; }
 .console .row__meta { font-variant-numeric: tabular-nums; }
+/* id video terpilih: bisa diklik untuk membuka videonya di YouTube */
+.console .row__yt {
+  color: var(--amber);
+  text-decoration: none;
+  border-bottom: 1px dotted rgba(246, 166, 35, 0.45);
+}
+.console .row__yt:hover,
+.console .row__yt:focus-visible {
+  border-bottom-style: solid;
+}
 .console .row__tag {
   border-color: var(--line);
   color: var(--text-dim);

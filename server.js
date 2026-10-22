@@ -574,15 +574,42 @@ function publicStateRamping(dariState = state) {
   return p;
 }
 
-/** Ubah durasi YouTube ("3:45" / "1:02:03") menjadi detik. */
+/** YouTube kadang menulis durasi dengan TITIK ("3.39" = 3 menit 39 detik),
+ *  terutama di hasil pencarian InnerTube. Semua yang membaca durasi di app ini
+ *  (tampilan, hitungan detik, total jam) mengira "m:ss" — jadi bentuknya
+ *  dinormalkan di satu tempat, sebelum keluar ke klien. */
+function normalisasiDurasi(teks) {
+  const s = String(teks == null ? '' : teks).trim();
+  if (!s) return '';
+  // "3.39" atau "3:39" → "3:39"; "1.02.03" → "1:02:03"
+  if (/^\d+\.\d{2}$/.test(s)) return s.replace('.', ':');
+  if (/^\d+\.\d{2}\.\d{2}$/.test(s)) return s.replace(/\./g, ':');
+  // detik polos → "m:ss"
+  if (/^\d+$/.test(s)) {
+    const d = Number(s);
+    const j = Math.floor(d / 3600);
+    const m = Math.floor((d % 3600) / 60);
+    const sisa = d % 60;
+    const mm = String(m).padStart(2, '0');
+    const ss = String(sisa).padStart(2, '0');
+    return j > 0 ? `${j}:${mm}:${ss}` : `${m}:${ss}`;
+  }
+  return s;
+}
+
+/** Ubah durasi YouTube ("3:45" / "1:02:03" / "3.39") menjadi detik. */
 function durasiKeDetik(nilai) {
   if (nilai === null || nilai === undefined || nilai === '') return 0;
   if (typeof nilai === 'number') return Number.isFinite(nilai) ? Math.max(0, Math.round(nilai)) : 0;
-  const bagian = String(nilai).trim().split(':').map((x) => Number(x));
-  if (bagian.some((x) => !Number.isFinite(x))) return 0;
+  const mentah = String(nilai).trim();
+  // "3.39" (menit.detik) ikut dibaca sebagai 3 menit 39 detik. Angka desimal
+  // satu digit ("3.4") dianggap detik biasa, bukan menit.detik.
+  const pemisah = /^\d+(\.\d{2}){1,2}$/.test(mentah) ? '.' : ':';
+  const bagian = mentah.split(pemisah).map((x) => Number(x));
+  if (!bagian.length || bagian.some((x) => !Number.isFinite(x))) return 0;
   let detik = 0;
   for (const b of bagian) detik = detik * 60 + b;
-  return Math.max(0, Math.min(detik, 86400));
+  return Math.max(0, Math.min(Math.round(detik), 86400));
 }
 
 /** Ringkasan durasi acara: berapa lama antrean, berapa lama sudah diputar.
@@ -1032,7 +1059,7 @@ function parseVideoRenderers(html, limit = 12) {
       id: id[1],
       title: title ? unescapeJson(title[1]) : '',
       channel: owner ? unescapeJson(owner[1]) : '',
-      duration: secs ? `${secs[1]}:${secs[2]}` : '',
+      duration: normalisasiDurasi(secs ? `${secs[1]}:${secs[2]}` : ''),
       thumbnail: Boolean(thumb),
     });
   }
@@ -1088,7 +1115,7 @@ function kumpulkanVideo(node, out, depth) {
       id: v.videoId,
       title: teks(v.title),
       channel: teks(v.ownerText) || teks(v.longBylineText),
-      duration: (v.lengthText && (v.lengthText.simpleText || '')) || '',
+      duration: normalisasiDurasi((v.lengthText && (v.lengthText.simpleText || '')) || ''),
     });
   }
   for (const nilai of Object.values(node)) kumpulkanVideo(nilai, out, depth + 1);

@@ -821,15 +821,19 @@ function startPolling() {
 
 /* --- Durasi & format waktu --- */
 
-/** "3:45" atau "1:02:03" → detik. */
+/** "3:45", "1:02:03", atau "3.39" (format YouTube terbaru) → detik. */
 function durasiKeDetik(nilai) {
   if (nilai === null || nilai === undefined || nilai === '') return 0;
   if (typeof nilai === 'number') return Number.isFinite(nilai) ? Math.max(0, Math.round(nilai)) : 0;
-  const bagian = String(nilai).trim().split(':').map((x) => Number(x));
+  const mentah = String(nilai).trim();
+  // "3.39" (menit.detik) dibaca sebagai 3 menit 39 detik; "3.4" (satu desimal)
+  // tetap dianggap detik biasa.
+  const pemisah = /^\d+(\.\d{2}){1,2}$/.test(mentah) ? '.' : ':';
+  const bagian = mentah.split(pemisah).map((x) => Number(x));
   if (!bagian.length || bagian.some((x) => !Number.isFinite(x))) return 0;
   let detik = 0;
   for (const b of bagian) detik = detik * 60 + b;
-  return Math.max(0, Math.min(detik, 86400));
+  return Math.max(0, Math.min(Math.round(detik), 86400));
 }
 
 /** Detik → "3:45" (jam baru muncul kalau memang lewat 1 jam). */
