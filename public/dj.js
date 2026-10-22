@@ -70,6 +70,7 @@ let jedaManual = false;
 let videoHarusMain = '';      // id video yang seharusnya sedang diputar
 let terakhirGantiVideo = 0;   // waktu (ms) perpindahan terakhir
 let posisiTerakhir = 0;       // posisi video terakhir yang diketahui (detik)
+let posisiTunggu = 0;         // posisi yang harus dikejar setelah video siap
 const JENDELA_ABAIM = 1000;   // ms: event dari video lama diabaikan sejenak
 
 /** Id video yang sedang termuat di player (kalau API bisa membacanya). */
@@ -152,7 +153,12 @@ function gambarChipWakeLock() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && token) ambilWakeLock();
 });
-window.addEventListener('pagehide', () => { if (wakeLockSentinel) lepasWakeLock(); });
+window.addEventListener('pagehide', () => {
+  // simpan posisi terakhir sebelum tab ditutup/refresh →reload tidak mulai dari nol
+  const pos = posisiPemutar();
+  if (currentSourceId && pos > 0) simpanPosisi(currentSourceId, pos);
+  if (wakeLockSentinel) lepasWakeLock();
+});
 
 /* ------------------------------------------------------------ utilitas */
 
@@ -409,6 +415,62 @@ async function klaimKendali(paksa = false) {
   }
 }
 
+/* --- Posisi lagu: biar tidak mulai dari nol saat panel dimuat ulang ---
+ * Dua lapis:
+ *  1) localStorage di perangkat DJ — instan, walau server belum sempat
+ *     menerima laporan posisi;
+ *  2) state.player.posisi di server — dipakai kalau DJ pindah device. */
+const POSISI_KEY = 'requestlagu.posisi';
+const POSISI_MAX_UMUR = 6 * 60 * 60 * 1000; // 6 jam
+
+function simpanPosisi(trackId, detik) {
+  if (!trackId || !(detik > 0)) return;
+  try {
+    localStorage.setItem(POSISI_KEY, JSON.stringify({ t: trackId, d: Math.round(detik), s: Date.now() }));
+  } catch { /* gudang penuh — andalkan lapisan server */ }
+}
+
+/** Posisi terakhir lagu ini (detik), atau 0 kalau tidak ada/terlalu lama. */
+function bacaPosisi(trackId) {
+  if (!trackId) return 0;
+  try {
+    const raw = JSON.parse(localStorage.getItem(POSISI_KEY) || 'null');
+    if (!raw || raw.t !== trackId) return 0;
+    if (!raw.s || Date.now() - raw.s > POSISI_MAX_UMUR) return 0;
+    return Math.max(0, Number(raw.d) || 0);
+  } catch { return 0; }
+}
+
+/** Posisi yang dilaporkan server untuk lagu yang sedang main (device lain). */
+function posisiDariServer(trackId) {
+  if (!trackId || !state || !state.player) return 0;
+  if (state.player.trackId !== trackId) return 0;
+  return Math.max(0, Number(state.player.posisi) || 0);
+}
+
+/** Posisi video yang sedang diputar (detik). */
+function posisiPemutar() {
+  if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+    try { const p = ytPlayer.getCurrentTime() || 0; if (p > 0) return p; } catch { /* abaikan */ }
+  }
+  const audio = $('audioEl');
+  if (audio && !audio.hidden && audio.currentTime) return audio.currentTime || 0;
+  return 0;
+}
+
+/** Kalau panel ini memegang pemutar dan ada lagu yang sedang main, lanjutkan
+ *  dari titik terakhir. Dipanggil saat panel dimuat (setelah reload) dan saat
+ *  panel diklaim menjadi pemutar utama. */
+function lanjutkanLaguYangSedangMain() {
+  if (!state || !token) return;
+  if (!kitaPegang()) return;
+  const main = state.tracks.find((t) => t.status === 'playing');
+  if (!main) return;
+  if (currentSourceId === main.id) return; // sudah diputar
+  if (playerManaged()) return;             // device lain yang memegang
+  startPlayback(main);
+}
+
 /** Detak status pemutar ke server (hanya pemegang yang melapor). */
 async function detakPemutar() {
   if (!token || !state) return;
@@ -454,14 +516,30 @@ async function detakPemutar() {
         const pos = ytPlayer.getCurrentTime() || 0;
         if (pos > posisiTerakhir) posisiTerakhir = pos;
       }
+      // Kejar posisi yang tersimpan (panel dimuat ulang / pindah device):
+      // baru setelah video yang benar benar-benar siap, dan hanya sekali.
+      if (posisiTunggu > 5 && posisiTunggu < (ytPlayer.getDuration ? (ytPlayer.getDuration() || 0) - 10 : 0)) {
+        const pos = typeof ytPlayer.getCurrentTime === 'function' ? (ytPlayer.getCurrentTime() || 0) : 0;
+        if (pos < 2) {
+          try {
+            ytPlayer.seekTo(posisiTunggu, true);
+            posisiTunggu = 0;
+          } catch { /* abaikan — coba lagi di detak berikutnya */ }
+        }
+      }
     }
   }
 
   try {
+    // posisi dilaporkan ke server supaya device lain bisa lanjut dari titik
+    // yang sama; disimpan juga di perangkat (lihat simpanPosisi).
+    const pos = posisiPemutar();
+    if (currentSourceId && pos > 0) simpanPosisi(currentSourceId, pos);
     await api('/api/player/status', 'POST', {
       status, detail,
       trackId: playing ? playing.id : '',
       panel: panelId,
+      posisi: pos,
     });
   } catch { /* server sibuk — coba detak berikutnya */ }
 }
@@ -493,6 +571,10 @@ function startPlayback(track) {
   videoHarusMain = track.yt || '';
   terakhirGantiVideo = Date.now();
   posisiTerakhir = 0;
+  // Kalau lagu ini sempat jalan (mis. panel dimuat ulang atau DJ pindah
+  // device), lanjut dari titik terakhir — bukan dari detik 0.
+  const dariLokal = bacaPosisi(track.id);
+  posisiTunggu = dariLokal > 5 ? dariLokal : posisiDariServer(track.id);
   jedaManual = false; // lagu baru → anggap belum pernah dijeda DJ secara manual
   hint.hidden = true;
   // ada lagu yang diputar → sembunyikan placeholder kosong
@@ -508,6 +590,14 @@ function startPlayback(track) {
     frame.hidden = true;
     audio.hidden = false;
     audio.src = `/audio/${encodeURIComponent(track.audio)}`;
+    // File audio lokal juga lanjut dari titik terakhir.
+    if (posisiTunggu > 5) {
+      const lanjut = posisiTunggu;
+      const setel = () => { try { audio.currentTime = lanjut; } catch { /* abaikan */ } };
+      if (audio.readyState >= 1) setel();
+      else audio.addEventListener('loadedmetadata', setel, { once: true });
+    }
+    posisiTunggu = 0;
     audio.play().catch(() => {
       $('nowNote').textContent = 'Browser memblokir autoplay — tekan tombol play di pemutar.';
     });
@@ -2088,6 +2178,10 @@ async function boot() {
       showApp();
       render();
       muatAdzan();
+      // Panel ini yang memegang pemutar → lanjutkan lagu yang sedang jalan
+      // dari titik terakhir (bukan dari nol). Ini yang membuat reload/muat
+      // ulang tab tidak memutus acara.
+      lanjutkanLaguYangSedangMain();
     } catch {
       // token hangus — biarkan layar login tampil
       token = '';

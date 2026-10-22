@@ -1531,6 +1531,10 @@ async function handleApi(req, res, url) {
         // id panel DJ yang memegang kendali pemutar ('' = tidak ada)
         panel: panel || (state.player && state.player.panel) || '',
         updatedAt: Date.now(),
+        // Posisi lagu yang sedang diputar (detik). Dipakai supaya kalau panel
+        // dimuat ulang atau DJ pindah device, lagu lanjut dari titik terakhir
+        // — bukan mulai dari nol.
+        posisi: Math.max(0, Math.min(86400, Number(body.posisi) || 0)),
       };
     });
     return sendJson(res, 200, { ok: true });
