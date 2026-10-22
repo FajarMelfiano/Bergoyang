@@ -115,6 +115,7 @@ Sesi login bertahan **30 hari** dan disimpan di `localStorage`
 | **Riwayat** | Lagu yang sudah diputar + durasinya, bisa dibersihkan. |
 | **Kelola panitia** | Ganti password panitia yang lupa, lihat daftar akun (tanpa hash/salt). |
 | **Pencarian & sumber** | "Cari otomatis di YouTube" atau tempel link; sumber audio lokal juga didukung (folder `audio/`). |
+| **Sumber alternatif otomatis** | Kalau video yang dipilih **tidak tersedia** (dihapus, diblokir, tidak ada di wilayah), panel **mencari video lain dengan judul serupa** lalu memutar yang itu. Lagu baru dilewati hanya kalau tidak ada sumber alternatif. |
 | **Pintasan** | Spasi = jeda/mainkan manual. Penyesuaian DJ manual tidak pernah ditimpa auto-heal. |
 
 ---
@@ -307,6 +308,7 @@ sumber tidak ditemukan).
 | `POST` | `/api/dj/clear-done` | Mengosongkan riwayat selesai saja. |
 | `POST` | `/api/dj/durasi` | `{ id, dur }` → menyimpan durasi lagu (dari pemutar) + menandai yang melewati batas. |
 | `POST` | `/api/dj/beat` | `{ pos, dur, bpm, energy }` → beat-grid (untuk visualizer). |
+| `POST` | `/api/dj/sumber-alternatif` | `{ id, gagal? }` → kandidat video lain untuk lagu yang sama (dipakai otomatis saat video error). |
 | `POST` | `/api/dj/password` | `{ passwordLama, passwordBaru }` → ganti sandi sendiri. |
 | `POST` | `/api/dj/reset-password` | `{ username, passwordBaru }` → reset sandi panitia (admin). |
 | `PATCH` | `/api/event` | `{ name, tagline, open, allowVotes, allowMessages, maksDurasiMenit, perlakuanDurasiPanjang }`. |
@@ -555,28 +557,33 @@ asumsi.
    Solusinya: catat video mana yang seharusnya main, abaikan event yang tidak
    cocok, dan kembalikan posisi saat video terputus.
 
-8. **Format durasi YouTube berubah.** InnerTube kini menulis `"3.39"` (menit **titik**
+8. **Kode galat YouTube artinya apa.** `100` = video tidak ada, `101/150` = tidak bisa
+   diputar di wilayah/embed, `5` = galat HTML5 yang biasanya sementara (coba putar
+   ulang dulu, jangan langsung ganti sumber). Untuk kode 100/101/150: cari sumber lain
+   dulu, baru lewati lagu.
+
+9. **Format durasi YouTube berubah.** InnerTube kini menulis `"3.39"` (menit **titik**
    detik), bukan `"3:39"`. Parser harus menerima keduanya, dan hasil pencarian
    sebaiknya dinormalkan di satu tempat sebelum keluar ke klien.
 
-9. **`ytId()` hanya menerima 11 karakter.** Id uji yang lebih pendek diam-diam
+10. **`ytId()` hanya menerima 11 karakter.** Id uji yang lebih pendek diam-diam
    ditolak → server menganggap tidak ada sumber → mencari YouTube sungguhan.
    Untuk uji, pakai id format sah.
 
-10. **Vercel: alias tidak selalu ikut berganti.** Setelah `vercel rollback`,
+11. **Vercel: alias tidak selalu ikut berganti.** Setelah `vercel rollback`,
     `vercel deploy --prod` tidak memindahkan alias. Verifikasi selalu.
 
-11. **`vercel env pull` menyamarkan nilai sensitif** (`[SENSITIVE]`) untuk
+12. **`vercel env pull` menyamarkan nilai sensitif** (`[SENSITIVE]`) untuk
     `SUPABASE_*` — nilainya tidak bisa diambil dari sana.
 
-12. **Kuota Redis bisa habis kapan saja** (balas 403 "Fixed plan limits"). Karena
+13. **Kuota Redis bisa habis kapan saja** (balas 403 "Fixed plan limits"). Karena
     itu Redis bukan default; state utama di Supabase, Redis opsional.
 
-13. **Endpoint pengosong tidak punya "undo".** `clear-all` menghapus seluruh
+14. **Endpoint pengosong tidak punya "undo".** `clear-all` menghapus seluruh
     track kecuali yang sedang diputar — termasuk riwayat. Kalau hanya mau
     membersihkan satu lagu uji, pakai aksi per-lagu (`reject`), bukan `clear-all`.
 
-14. **Mode lokal tidak punya mutex** (mutex `chain` + kunci tulis hanya aktif di
+15. **Mode lokal tidak punya mutex** (mutex `chain` + kunci tulis hanya aktif di
     mode daring). Perilaku bisa berbeda antara lokal dan produksi, jadi uji
     regresi yang sensitive dengan server daring.
 
@@ -604,7 +611,7 @@ asumsi.
 ## 17. Pengujian
 
 ```bash
-npm test          # 40 test kontrak API (39 lulus, 1 skipped)
+npm test          # 41 test kontrak API (40 lulus, 1 skipped)
 ```
 
 Suite memakai **harness terisolasi**: server dijalankan sebagai proses terpisah
@@ -615,8 +622,8 @@ Akun uji: `admin` / `admin-pass-123`, `panitia1` / `user-pass-123`,
 Yang diuji: bentuk state publik, login/token, hak akses peran, alur request
 (201/400/401/403/429), voting, klaim pemutar, heartbeat status, advance, aksi
 per lagu, geser antrean, ganti & reset sandi, SSE, beat-grid, **dedupe**,
-**batas durasi**, **penyimpanan durasi**, **statistik**, dan **balasan detak
-pemutar**.
+**batas durasi**, **penyimpanan durasi**, **statistik**, **balasan detak
+pemutar**, dan **sumber alternatif**.
 
 Uji manual di peramban (untuk bagian yang hanya ada di klien):
 
