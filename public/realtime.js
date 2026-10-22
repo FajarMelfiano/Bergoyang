@@ -47,6 +47,14 @@ function RLsambung(handler) {
         else if (handler.onUpdate) handler.onUpdate();
       } catch { /* abaikan */ }
     });
+    // Status pemutar (siapa yang memegang, lagu apa, posisi) dikirim ringan
+    // setiap detak panel DJ — tanpa menulis state, jadi tidak memblokir
+    // mutasi lain.
+    if (handler.onPlayer) {
+      kanal.on('broadcast', { event: 'player' }, (pesan) => {
+        try { handler.onPlayer((pesan && pesan.payload) || {}); } catch { /* abaikan */ }
+      });
+    }
     if (handler.onBeat) {
       kanal.on('broadcast', { event: 'beat' }, (pesan) => {
         try { handler.onBeat((pesan && pesan.payload) || {}); } catch { /* abaikan */ }

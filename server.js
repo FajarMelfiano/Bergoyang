@@ -148,6 +148,12 @@ const PAKAI_REDIS_PANAS = Boolean(
 
 const STATE_KEY = 'requestlagu:state';
 const LOCK_KEY = 'requestlagu:lock';
+/* Status pemutar (siapa yang memegang, lagu apa, posisi) disimpan di baris
+ * KECIL tersendiri — bukan di state utama. Alasannya: panel DJ mengirim
+ * detak tiap 5 detik; kalau itu menulis state utama (puluhan KB), setiap
+ * detak jadi satu penulisan penuh yang menahan kunci dan antre di belakang
+ * aksi DJ. Baris kecil ini ditulis tanpa kunci, jadi detak selalu ringan. */
+const PLAYER_KEY = 'requestlagu:player';
 /** Batas lagu yang boleh menunggu di antrean. Setelah tercapai, request
  *  ditutup otomatis sampai DJ membukanya lagi. */
 const BATAS_REQUEST = 20;
@@ -356,8 +362,69 @@ async function loadStateRedis() {
   }
 }
 
+/* --- Baris status pemutar (kecil, ditulis tanpa kunci tulis state utama) --- */
+
+async function simpanPemutar(player) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/app_state`, {
+    method: 'POST',
+    headers: {
+      apikey: SUPABASE_KEY,
+      authorization: `Bearer ${SUPABASE_KEY}`,
+      'content-type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    },
+    body: JSON.stringify({
+      key: PLAYER_KEY,
+      value: player,
+      updated_at: new Date().toISOString(),
+    }),
+  });
+  if (!res.ok) throw new Error(`Simpan status pemutar -> HTTP ${res.status}`);
+}
+
+/** Status pemutar terakhir yang tersimpan (sumber kebenaran "masih hidup"). */
+async function ambilPemutar() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/app_state?key=eq.${PLAYER_KEY}&select=value`, {
+    headers: {
+      apikey: SUPABASE_KEY,
+      authorization: `Bearer ${SUPABASE_KEY}`,
+      accept: 'application/json',
+    },
+  });
+  if (!res.ok) return null;
+  const rows = await res.json();
+  return rows && rows[0] ? rows[0].value : null;
+}
+
 async function saveStateRedis() {
   await redis('SET', STATE_KEY, JSON.stringify(state));
+}
+
+/** Detak status pemutar dari panel DJ.
+ *  Ringan: hanya menulis baris status pemutar (kecil) + menyiarkannya ke
+ *  panel lain. State utama tidak disentuh, jadi detak tidak pernah menahan
+ *  kunci tulis dan tidak menggeser antrean. */
+async function layaniStatusPemutar(req, res) {
+  if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+  const body = await readBody(req);
+  const player = {
+    status: clean(body.status, 24) || 'siap',
+    detail: clean(body.detail, 200),
+    trackId: clean(body.trackId, 64),
+    panel: clean(body.panel, 40) || (state.player && state.player.panel) || '',
+    updatedAt: Date.now(),
+    // Posisi lagu yang sedang diputar (detik) — dipakai supaya panel yang
+    // dimuat ulang atau DJ yang pindah device melanjutkan dari titik ini.
+    posisi: Math.max(0, Math.min(86400, Number(body.posisi) || 0)),
+  };
+  state.player = player;
+  if (USE_SUPABASE) {
+    try { await simpanPemutar(player); }
+    catch (err) { console.error('Gagal menyimpan status pemutar:', err.message); }
+    // Kabari panel-panel lain (ringan, tanpa menulis ke database).
+    try { await kirimRealtime('player', player); } catch { /* abaikan */ }
+  }
+  return sendJson(res, 200, { ok: true, player });
 }
 
 /* --- Dispatcher Penyimpanan Daring --- */
@@ -1520,24 +1587,7 @@ async function handleApi(req, res, url) {
 
   /* --- status pemutar (diisi panel DJ yang sedang memegang kendali) --- */
   if (method === 'POST' && p === '/api/player/status') {
-    if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
-    const body = await readBody(req);
-    mutate(() => {
-      const panel = clean(body.panel, 40);
-      state.player = {
-        status: clean(body.status, 24) || 'siap',
-        detail: clean(body.detail, 200),
-        trackId: clean(body.trackId, 64),
-        // id panel DJ yang memegang kendali pemutar ('' = tidak ada)
-        panel: panel || (state.player && state.player.panel) || '',
-        updatedAt: Date.now(),
-        // Posisi lagu yang sedang diputar (detik). Dipakai supaya kalau panel
-        // dimuat ulang atau DJ pindah device, lagu lanjut dari titik terakhir
-        // — bukan mulai dari nol.
-        posisi: Math.max(0, Math.min(86400, Number(body.posisi) || 0)),
-      };
-    });
-    return sendJson(res, 200, { ok: true });
+    return layaniStatusPemutar(req, res);
   }
 
   /* --- klaim kepemilikan pemutar ---
@@ -1547,8 +1597,17 @@ async function handleApi(req, res, url) {
     if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
     const body = await readBody(req);
     const panel = clean(body.panel, 40);
-    const pemegang = state.player && state.player.panel;
-    const segar = state.player && Date.now() - state.player.updatedAt < 12000;
+    // Kelayakan diambil dari baris status pemutar (selalu diperbarui setiap
+    // detak) — bukan dari state utama, karena detak tidak menulis state utama.
+    let pemegang = state.player && state.player.panel;
+    let segar = state.player && Date.now() - state.player.updatedAt < 12000;
+    try {
+      const live = await ambilPemutar();
+      if (live && live.panel) {
+        pemegang = live.panel;
+        segar = Date.now() - (live.updatedAt || 0) < 12000;
+      }
+    } catch { /* pakai state utama */ }
     if (pemegang && pemegang !== panel && segar && !body.paksa) {
       return sendJson(res, 409, { ok: false, pemegang });
     }
@@ -1559,8 +1618,10 @@ async function handleApi(req, res, url) {
         trackId: '',
         panel: panel || '',
         updatedAt: Date.now(),
+        posisi: 0,
       };
     });
+    try { await simpanPemutar(state.player); } catch { /* abaikan */ }
     return sendJson(res, 200, { ok: true, player: state.player });
   }
 
@@ -1569,11 +1630,19 @@ async function handleApi(req, res, url) {
     if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
     const body = await readBody(req);
     const panel = clean(body.panel, 40);
+    let dilepas = false;
     mutate(() => {
       if (!panel || (state.player && state.player.panel === panel)) {
         state.player = null;
+        dilepas = true;
       }
     });
+    if (dilepas) {
+      // baris status pemutar juga dibersihkan, supaya panel lain tahu
+      // pemutar sudah bebas (dan tidak menganggapnya "masih hidup").
+      try { await simpanPemutar({ panel: '', status: 'siap', detail: '', trackId: '', updatedAt: Date.now(), posisi: 0 }); }
+      catch { /* abaikan */ }
+    }
     return sendJson(res, 200, { ok: true });
   }
 
@@ -2192,24 +2261,6 @@ async function processRequest(req, res) {
   stateSiap = !IS_VERCEL; // mode lokal: state sudah dimuat dari berkas
 
   if (IS_VERCEL && (req.url || '').startsWith('/api/')) {
-    const jalurApi = String(req.url || '').split('?')[0];
-    // Detak panel DJ: status pemutar dikirim ulang tiap beberapa detik.
-    // Kalau isinya sama dengan yang terakhir diketahui, ini hanya "detak
-    // jantung" — tidak perlu kunci tulis, tidak perlu baca store, tidak
-    // perlu menulis ulang state. Inilah yang menjaga antrean tetap lega
-    // saat acara ramai (dulu tiap detak menambah satu putaran penuh).
-    if (req.method === 'POST' && jalurApi === '/api/player/status') {
-      try {
-        const body = await readBody(req);
-        const cur = state.player || {};
-        const panel = clean(body.panel, 40);
-        const sama = (panel || cur.panel || '') === (cur.panel || '')
-          && (clean(body.status, 24) || 'siap') === (cur.status || 'siap')
-          && clean(body.detail, 200) === (cur.detail || '')
-          && clean(body.trackId, 64) === (cur.trackId || '');
-        if (sama) return sendJson(res, 200, { ok: true });
-      } catch { /* lanjut ke jalur mutasi biasa */ }
-    }
     // Request yang mengubah data harus memegang kunci supaya tidak menimpa
     // instance lain yang sedang menyimpan hasil-nya.
     const mauUbah = req.method !== 'GET' && req.method !== 'HEAD';
@@ -2276,6 +2327,10 @@ function handleRequest(req, res) {
   const jalur = String(req.url || '').split('?')[0];
   if (req.method === 'GET' && jalur === '/api/state') {
     return serveStateCepat(req, res);
+  }
+  // Detak status pemutar juga ringan (cuma baris kecil) → tidak perlu kunci.
+  if (req.method === 'POST' && jalur === '/api/player/status') {
+    return layaniStatusPemutar(req, res);
   }
   const next = chain.then(() => processRequest(req, res), () => processRequest(req, res));
   chain = next.catch(() => {});

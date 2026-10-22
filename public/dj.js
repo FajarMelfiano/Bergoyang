@@ -535,12 +535,19 @@ async function detakPemutar() {
     // yang sama; disimpan juga di perangkat (lihat simpanPosisi).
     const pos = posisiPemutar();
     if (currentSourceId && pos > 0) simpanPosisi(currentSourceId, pos);
-    await api('/api/player/status', 'POST', {
+    const balasan = await api('/api/player/status', 'POST', {
       status, detail,
       trackId: playing ? playing.id : '',
       panel: panelId,
       posisi: pos,
     });
+    // Server membalas status terbaru (termasuk stempel "masih hidup") —
+    // dipakai langsung supaya chip tidak pernah basi walau siarannya datang
+    // terlambat.
+    if (balasan && balasan.player && state) {
+      state.player = { ...(state.player || {}), ...balasan.player };
+      renderPlayerChip();
+    }
   } catch { /* server sibuk — coba detak berikutnya */ }
 }
 
@@ -1138,16 +1145,35 @@ async function mungkinPutarOtomatis(paksa = false) {
   await advance();
 }
 
-/** Chip status mesin pemutar di tab YouTube Music. */
+/** Chip status mesin pemutar di tab YouTube Music.
+ *  Kalau panel INI yang memegang pemutar, status sebenarnya kita tahu
+ *  sendiri dari pemutar lokal — jadi chip tidak pernah bilang "terputus"
+ *  padahal musiknya jalan (stempel waktu server bisa saja basi). */
 function renderPlayerChip() {
   const chip = $('playerChip');
   if (!chip) return;
   const p = state.player;
   const fresh = Boolean(p && Date.now() - p.updatedAt < 12000);
   const tones = { memutar: 'play', siap: 'ok', jeda: 'pause', error: 'error' };
-  chip.dataset.tone = p && fresh ? (tones[p.status] || 'ok') : p ? 'stale' : 'off';
-  chip.textContent = p
-    ? `Player: ${fresh ? p.status : 'terputus'}${p.detail ? ` — ${p.detail}` : ''}`
+  let status = '';
+  let detail = '';
+
+  if (kitaPegang()) {
+    // realities of this device
+    const stYt = ytPlayer && typeof ytPlayer.getPlayerState === 'function' ? ytPlayer.getPlayerState() : -1;
+    const main = state.tracks ? state.tracks.find((t) => t.status === 'playing') : null;
+    if (stYt === 2 /* PAUSED */) status = 'jeda';
+    else if (stYt === 1 /* PLAYING */ || stYt === 3 /* BUFFERING */ || main) status = 'memutar';
+    else status = (p && p.status) || 'siap';
+    detail = (p && p.detail) || (main ? main.title : '');
+  } else if (p) {
+    status = fresh ? (p.status || 'siap') : 'terputus';
+    detail = p.detail || '';
+  }
+
+  chip.dataset.tone = status ? (tones[status] || 'ok') : 'off';
+  chip.textContent = status
+    ? `Player: ${status}${detail ? ` — ${detail}` : ''}`
     : 'Player: nonaktif';
   renderKendaliChip();
 }
@@ -1215,6 +1241,12 @@ function pasangRealtime() {
     // dari server setiap ada perubahan.
     onState: (baru) => { if (baru) applyState(JSON.stringify(baru)); },
     onUpdate: () => { pollState(); }, // cadangan: server tanpa state
+    // Status pemutar dikirim ringan tiap detak — dipakai untuk-chip "Player".
+    onPlayer: (p) => {
+      if (!p || typeof p !== 'object') return;
+      state.player = { ...(state.player || {}), ...p };
+      renderPlayerChip();
+    },
     onOrang: (n) => {
       const el = $('orangOnline');
       if (!el) return;
