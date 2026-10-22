@@ -551,6 +551,55 @@ async function detakPemutar() {
   } catch { /* server sibuk — coba detak berikutnya */ }
 }
 
+/** Sumber yang sudah dicoba untuk tiap lagu (supaya tidak mencoba video
+ *  yang sama berulang-ulang). */
+const sumberGagal = {};
+
+/**
+ * Video tidak tersedia → cari sumber lain dengan judul serupa, lalu pakai
+ * yang terbaik. Kalau tidak ada kandidat, baru lagu dilewati. Jadi request tamu
+ * tidak hilang cuma karena videonya dihapus YouTube.
+ */
+async function gantiSumberOtomatis(track, kodeError) {
+  const gagal = (sumberGagal[track.id] = sumberGagal[track.id] || []);
+  if (track.yt && !gagal.includes(track.yt)) gagal.push(track.yt);
+
+  // Kode 5 = galat HTML5 (biasanya sementara) → coba putar ulang yang sama
+  // sekali sebelum ganti sumber.
+  if (Number(kodeError) === 5 && gagal.length <= 1) {
+    try {
+      if (ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+        ytPlayer.loadVideoById(track.yt);
+        return;
+      }
+    } catch { /* lanjut ke ganti sumber */ }
+  }
+
+  if (gagal.length > 3) {
+    toast('Video tidak tersedia dan sumber lain tidak ditemukan — dilompati.', 'error');
+    advance();
+    return;
+  }
+
+  try {
+    const res = await api('/api/dj/sumber-alternatif', 'POST', { id: track.id, gagal });
+    const kandidat = (res && res.kandidat) || [];
+    if (!kandidat.length) {
+      toast('Video tidak tersedia — sumber lain tidak ditemukan, dilompati.', 'error');
+      advance();
+      return;
+    }
+    const ambil = kandidat[0];
+    toast(`Video tidak tersedia — pakai sumber lain: ${ambil.title || ambil.yt}`, 'warn');
+    const hasil = await trackAction(track.id, 'link', { yt: ambil.yt });
+    const baru = hasil && hasil.track ? hasil.track : { ...track, yt: ambil.yt };
+    startPlayback({ ...baru, audio: '' });
+  } catch (err) {
+    toast('Gagal mencari sumber lain — dilompati.', 'error');
+    advance();
+  }
+}
+
 /** Putar video YT — tangani browser yang memblokir autoplay suara.
  *  Dilarang memutar video yang bukan yang sedang diminta:YT API akan
  *  memutar ulang video LAMA dari detik 0 kalau playVideo() dipanggil saat
@@ -642,11 +691,14 @@ function startPlayback(track) {
               if (!eventMilikLaguIni(videoYangTermuat())) return;
               if (currentSourceId) advance();
             },
-            onError: () => {
+            onError: (event) => {
               if (!currentSourceId) return;
               if (!eventMilikLaguIni(videoYangTermuat())) return;
-              toast('Video tidak bisa diputar — dilompati ke lagu berikutnya.', 'error');
-              advance();
+              const track = state && state.tracks
+                ? state.tracks.find((t) => t.id === currentSourceId)
+                : null;
+              if (!track) { advance(); return; }
+              gantiSumberOtomatis(track, event && event.data);
             },
           },
         });

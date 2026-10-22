@@ -708,3 +708,16 @@ test('status pemutar: heartbeat menjawab status terbaru (termasuk posisi)', asyn
   assert.equal(st.player.detail, 'Lagu Uji', 'state publik ikut memuat status pemutar');
   await h.api('POST', '/api/player/release', { token: adminToken, body: { panel: 'panel-uji' } });
 });
+
+test('sumber alternatif: butuh admin, dan lagu tak dikenal → 404', async () => {
+  const t1 = (await login(h, 'user1')).token;
+  const bukanAdmin = await h.api('POST', '/api/dj/sumber-alternatif', {
+    token: t1, body: { id: 'apa-saja' },
+  });
+  assert.equal(bukanAdmin.status, 403, 'user biasa tidak boleh mencari sumber');
+
+  const takAda = await h.api('POST', '/api/dj/sumber-alternatif', {
+    token: adminToken, body: { id: 'tidak-ada' },
+  });
+  assert.equal(takAda.status, 404, 'lagu yang tidak ada → 404');
+});

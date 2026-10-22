@@ -1585,6 +1585,52 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { voteCount: Object.keys(track.votes).length, voted: Boolean(track.votes[deviceId]) });
   }
 
+  /* --- sumber alternatif otomatis ---
+   * Kalau video yang dipilih tidak tersedia (dihapus, diblokir, atau tidak
+   * ada di wilayah), lagunya jangan langsung dilewati: cari video lain
+   * dengan judul serupa supaya tetap bisa diputar. Kandidat dikembalikan
+   * urut dari yang paling cocok; video yang baru saja gagal dikecualikan. */
+  if (method === 'POST' && p === '/api/dj/sumber-alternatif') {
+    if (!isAdmin(req)) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+    const body = await readBody(req);
+    const track = findTrack(clean(body.id, 64));
+    if (!track) return sendJson(res, 404, { error: 'Lagu tidak ditemukan.' });
+    const judul = `${track.title} ${track.artist || ''}`.trim();
+    const exclude = new Set(
+      [track.yt, ...(Array.isArray(body.gagal) ? body.gagal : [])].filter(Boolean),
+    );
+    try {
+      const hasil = await youtubeSearchMany(judul, 10);
+      const kandidat = hasil
+        .filter((r) => r && r.id && !exclude.has(r.id))
+        .map((r) => ({
+          yt: r.id,
+          title: r.title,
+          channel: r.channel,
+          dur: durasiKeDetik(r.duration),
+        }));
+      // Diurutkan: channel yang sama dengan artis lebih dulu, lalu durasi yang
+      // mirip dengan durasi lagu aslinya. Video "official" hampir selalu di
+      // channel artis — upload acak sering sama judulnya tapi versinya berbeda.
+      const artis = (track.artist || '').toLowerCase().trim();
+      const durAsli = durasiKeDetik(track.dur);
+      kandidat.sort((a, b) => {
+        const ca = artis && (a.channel || '').toLowerCase().includes(artis) ? 0 : 1;
+        const cb = artis && (b.channel || '').toLowerCase().includes(artis) ? 0 : 1;
+        if (ca !== cb) return ca - cb;
+        if (durAsli) {
+          const da = a.dur ? Math.abs(a.dur - durAsli) / durAsli : 9;
+          const db = b.dur ? Math.abs(b.dur - durAsli) / durAsli : 9;
+          if (da !== db) return da - db;
+        }
+        return 0;
+      });
+      return sendJson(res, 200, { kandidat, gagal: track.yt });
+    } catch (err) {
+      return sendJson(res, 502, { error: `Pencarian sumber alternatif gagal: ${err.message}` });
+    }
+  }
+
   /* --- status pemutar (diisi panel DJ yang sedang memegang kendali) --- */
   if (method === 'POST' && p === '/api/player/status') {
     return layaniStatusPemutar(req, res);

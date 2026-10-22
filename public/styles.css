@@ -841,6 +841,8 @@ audio.local-player { width: 100%; margin: 14px 0; }
   visibility: visible;
 }
 .toast[data-tone="error"] { background: var(--signal); color: #fff; }
+/* peringatan: mis. "video tidak tersedia, ganti sumber" */
+.toast[data-tone="warn"] { background: var(--amber); color: var(--ink); }
 
 .footer {
   border-top: 1px solid var(--line);
