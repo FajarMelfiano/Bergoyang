@@ -58,6 +58,38 @@ let advancing = false;
 // autoplay diblokir) yang boleh diambil alih otomatis.
 let jedaManual = false;
 
+/* --- Penjaga perpindahan lagu ---
+ * Dua jebakan YouTube IFrame API yang bikin acara kacau:
+ *  1) loadVideoById() lalu playVideo() sesaat setelahnya → video SEBELUMNYA
+ *     bisa keputar lagi dari detik 0 ("lagu sebelumnya keputar ulang");
+ *  2) stopVideo()/loadVideoById() menembakkan event ENDED untuk video LAMA,
+ *     dan event itu membuat panel melompat ke lagu berikutnya di tengah lagu
+ *     yang sedang main ("ganti pas posisi play").
+ * Jadi: setiap perpindahan dicatat (video mana yang harusnya main, kapan),
+ * dan event YT yang tidak cocok diabaikan. */
+let videoHarusMain = '';      // id video yang seharusnya sedang diputar
+let terakhirGantiVideo = 0;   // waktu (ms) perpindahan terakhir
+let posisiTerakhir = 0;       // posisi video terakhir yang diketahui (detik)
+const JENDELA_ABAIM = 1000;   // ms: event dari video lama diabaikan sejenak
+
+/** Id video yang sedang termuat di player (kalau API bisa membacanya). */
+function videoYangTermuat() {
+  if (!ytPlayer || typeof ytPlayer.getVideoData !== 'function') return '';
+  try {
+    const data = ytPlayer.getVideoData();
+    return (data && data.video_id) || '';
+  } catch { return ''; }
+}
+
+/** Apakah event dari player ini boleh ditindaklanjuti? */
+function eventMilikLaguIni(videoId) {
+  // Right setelah perpindahan, event YT bisa saja milik video lama.
+  if (Date.now() - terakhirGantiVideo < JENDELA_ABAIM) return false;
+  // Kalau id-nya terbaca, harus sama dengan video yang kita maksud.
+  if (videoHarusMain && videoId) return videoId === videoHarusMain;
+  return true;
+}
+
 /* Hanya satu panel DJ yang boleh memutar. Id panel dibuat per tab dan disimpan
  * di sessionStorage agar tetap sama saat panel dimuat ulang. */
 const PANEL_KEY = 'requestlagu.panel';
@@ -325,6 +357,9 @@ function stopPlayback() {
     try { ytPlayer.stopVideo(); } catch { /* abaikan */ }
   }
   currentSourceId = null;
+  videoHarusMain = '';
+  terakhirGantiVideo = Date.now();
+  posisiTerakhir = 0;
   // sembunyikan kotak video supaya thumbnail video lama tidak nyangkut
   $('playerFrame').hidden = true;
   $('playerEmpty').hidden = false;
@@ -400,8 +435,24 @@ async function detakPemutar() {
       // di tab tersembunyi sehingga video sering nyangkut tanpa pernah mulai —
       // bukan cuma PAUSED. Dicoba tiap detak sampai benar-benar bunyi.
       const stateYt = ytPlayer.getPlayerState();
-      if (stateYt === 2 /* PAUSED */ || stateYt === -1 /* UNSTARTED */ || stateYt === 5 /* CUED */) {
+      const termuat = videoYangTermuat();
+      // Kalau yang termuat masih video LAMA, jangan panggil playVideo() di
+      // sini: itu yang membuat lagu sebelumnya keputar lagi dari awal.
+      // Tunggu sampai video yang benar benar-benar siap.
+      const videoBenar = !videoHarusMain || !termuat || termuat === videoHarusMain;
+      if (videoBenar && (stateYt === 2 /* PAUSED */ || stateYt === -1 /* UNSTARTED */ || stateYt === 5 /* CUED */)) {
+        // Kalau posisinya kembali ke 0 padahal tadinya sudah berjalan,
+        // kembalikan ke posisi sebelumnya — supaya lagu tidak keputar dari awal.
+        const pos = typeof ytPlayer.getCurrentTime === 'function' ? (ytPlayer.getCurrentTime() || 0) : 0;
+        if (pos < 1 && posisiTerakhir > 3 && typeof ytPlayer.seekTo === 'function') {
+          try { ytPlayer.seekTo(posisiTerakhir, true); } catch { /* abaikan */ }
+        }
         mainkanVideo();
+      }
+      // catat posisi terakhir, supaya bisa dikembalikan kalau terputus
+      if (typeof ytPlayer.getCurrentTime === 'function') {
+        const pos = ytPlayer.getCurrentTime() || 0;
+        if (pos > posisiTerakhir) posisiTerakhir = pos;
       }
     }
   }
@@ -415,9 +466,14 @@ async function detakPemutar() {
   } catch { /* server sibuk — coba detak berikutnya */ }
 }
 
-/** Putar video YT — tangani browser yang memblokir autoplay suara. */
+/** Putar video YT — tangani browser yang memblokir autoplay suara.
+ *  Dilarang memutar video yang bukan yang sedang diminta:YT API akan
+ *  memutar ulang video LAMA dari detik 0 kalau playVideo() dipanggil saat
+ *  pergantian video belum selesai. */
 function mainkanVideo() {
   if (!ytPlayer) return;
+  const termuat = videoYangTermuat();
+  if (videoHarusMain && termuat && termuat !== videoHarusMain) return;
   try {
     const pr = ytPlayer.playVideo();
     if (pr && typeof pr.catch === 'function') {
@@ -434,6 +490,9 @@ function startPlayback(track) {
   const frame = $('playerFrame');
   const hint = $('playerHint');
   currentSourceId = track.id;
+  videoHarusMain = track.yt || '';
+  terakhirGantiVideo = Date.now();
+  posisiTerakhir = 0;
   jedaManual = false; // lagu baru → anggap belum pernah dijeda DJ secara manual
   hint.hidden = true;
   // ada lagu yang diputar → sembunyikan placeholder kosong
@@ -478,10 +537,17 @@ function startPlayback(track) {
           events: {
             onReady: () => mainkanVideo(),
             onStateChange: (event) => {
-              if (event.data === 0 /* ENDED */ && currentSourceId) advance();
+              if (event.data !== 0 /* ENDED */) return;
+              // Abaikan event ENDED yang bukan milik lagu yang sedang main
+              // (mis. efek stopVideo()/loadVideoById() atas video lama) —
+              // kalau tidak, panel melompat ke lagu berikutnya di tengah
+              // lagu yang sedang diputar.
+              if (!eventMilikLaguIni(videoYangTermuat())) return;
+              if (currentSourceId) advance();
             },
             onError: () => {
               if (!currentSourceId) return;
+              if (!eventMilikLaguIni(videoYangTermuat())) return;
               toast('Video tidak bisa diputar — dilompati ke lagu berikutnya.', 'error');
               advance();
             },
@@ -489,7 +555,10 @@ function startPlayback(track) {
         });
       } else {
         ytPlayer.loadVideoById(track.yt);
-        mainkanVideo();
+        // JANGAN langsung playVideo() di sini: pada YouTube API itu bisa
+        // memutar ulang video SEBELUMNYA dari detik 0. Video baru diputar
+        // sendiri oleh autoplay=1; kalau browser memblokir, detak pemutar
+        // akan memulainya begitu video yang benar sudah termuat.
       }
     })
     .catch((err) => showHint([err.message]));
@@ -960,6 +1029,12 @@ async function mungkinPutarOtomatis(paksa = false) {
   if (!paksa && Date.now() - autoPlayTerakhir < 3000) return;
   const playing = state.tracks.find((t) => t.status === 'playing');
   if (playing) return;
+  // Kalau pemutar YouTube ternyata masih.main sesuatu (mis. state server
+  // tertinggal), jangan mulai lagu lain — itu yang bikin lagu berganti di
+  // tengah posisi. Video yang sudah selesai akan memicu advance() sendiri.
+  if (ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+    if (ytPlayer.getPlayerState() === 1 /* PLAYING */) return;
+  }
   const antri = urutAntrean(state.tracks.filter((t) => t.status === 'queued'));
   if (!antri.length) return;
   if (!state.autoNext) {
