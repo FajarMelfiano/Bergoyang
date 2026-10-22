@@ -11,6 +11,15 @@ const assert = require('node:assert/strict');
 const { startServer, login, SEED, YT } = require('./helpers/harness.js');
 
 let h;
+/** ID video YouTube valid (11 karakter) yang BERBEDA tiap dipanggil.
+ *  Sejak fitur dedupe, video yang sama tidak boleh masuk antrean dua kali —
+ *  jadi setiap request di test harus memakai video yang berbeda. */
+let ytUrut = 0;
+function ytBaru() {
+  ytUrut += 1;
+  return `ujiyt${String(ytUrut).padStart(6, '0')}`;
+}
+
 let adminToken;
 let user1Token;
 let user2Token;
@@ -132,23 +141,23 @@ test('admin boleh membaca daftar panitia tanpa hash/salt', async () => {
 /* --------------------------------------------------------- 4. alur request */
 
 test('request anonim → 401', async () => {
-  const r = await h.api('POST', '/api/request', { body: { title: 'Lagu Bebas', yt: YT } });
+  const r = await h.api('POST', '/api/request', { body: { title: 'Lagu Bebas', yt: ytBaru() } });
   assert.equal(r.status, 401);
 });
 
 test('request tanpa judul → 400', async () => {
-  const r = await h.api('POST', '/api/request', { token: user1Token, body: { yt: YT } });
+  const r = await h.api('POST', '/api/request', { token: user1Token, body: { yt: ytBaru() } });
   assert.equal(r.status, 400);
 });
 
 test('request dengan sumber explicit → 201, masuk antrean (queued)', async () => {
   const r = await h.api('POST', '/api/request', {
     token: user1Token,
-    body: { title: 'Lagu Satu', artist: 'Artis', yt: YT },
+    body: { title: 'Lagu Satu', artist: 'Artis', yt: ytBaru() },
   });
   assert.equal(r.status, 201);
   assert.equal(r.json.status, 'queued', 'autoApprove default → langsung queued');
-  assert.equal(r.json.track.yt, YT);
+  assert.match(r.json.track.yt, /^[A-Za-z0-9_-]{11}$/, 'id video format YouTube');
   assert.equal(r.json.track.requester, SEED.user1.username, 'peminta = username login');
   assert.ok(r.json.track.votes && typeof r.json.track.votes === 'object');
 });
@@ -158,19 +167,19 @@ test('rate limit: request ke-11 dalam 60 detik → 429', async () => {
   for (let i = 0; i < 10; i++) {
     const r = await h.api('POST', '/api/request', {
       token: user1Token,
-      body: { title: `Banjir ${i}`, yt: YT },
+      body: { title: `Banjir ${i}`, yt: ytBaru() },
     });
     assert.equal(r.status, 201, `request #${i + 1} harus 201`);
   }
   const r = await h.api('POST', '/api/request', {
     token: user1Token,
-    body: { title: 'Banjir berlebih', yt: YT },
+    body: { title: 'Banjir berlebih', yt: ytBaru() },
   });
   assert.equal(r.status, 429);
   // user lain tidak terdampak (limit per akun)
   const lain = await h.api('POST', '/api/request', {
     token: user2Token,
-    body: { title: 'Bukan banjir', yt: YT },
+    body: { title: 'Bukan banjir', yt: ytBaru() },
   });
   assert.equal(lain.status, 201);
   await resetQueue();
@@ -180,7 +189,7 @@ test.skip('autoApprove mati → request berstatus pending (status pending dihapu
   await h.api('PATCH', '/api/event', { token: adminToken, body: { autoApprove: false } });
   const r = await h.api('POST', '/api/request', {
     token: user1Token,
-    body: { title: 'Perlu Persetujuan', yt: YT },
+    body: { title: 'Perlu Persetujuan', yt: ytBaru() },
   });
   assert.equal(r.status, 201);
   assert.equal(r.json.status, 'pending');
@@ -192,7 +201,7 @@ test('event ditutup → request ditolak 403', async () => {
   await h.api('PATCH', '/api/event', { token: adminToken, body: { open: false } });
   const r = await h.api('POST', '/api/request', {
     token: user1Token,
-    body: { title: 'Saat Tutup', yt: YT },
+    body: { title: 'Saat Tutup', yt: ytBaru() },
   });
   assert.equal(r.status, 403);
   await h.api('PATCH', '/api/event', { token: adminToken, body: { open: true } });
@@ -203,7 +212,7 @@ test('event ditutup → request ditolak 403', async () => {
 test('vote anonim → 401; vote toggle on/off; lagu non-queued → 409', async () => {
   await resetQueue();
   const t = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Korban Vote', yt: YT },
+    token: user1Token, body: { title: 'Korban Vote', yt: ytBaru() },
   })).json.track;
 
   assert.equal((await h.api('POST', '/api/vote', { body: { trackId: t.id } })).status, 401);
@@ -231,10 +240,10 @@ test('vote anonim → 401; vote toggle on/off; lagu non-queued → 409', async (
 test('voting mengubah urutan antrean (vote terbanyak di depan)', async () => {
   await resetQueue();
   const t1 = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Tanpa Suara', yt: YT },
+    token: user1Token, body: { title: 'Tanpa Suara', yt: ytBaru() },
   })).json.track;
   const t2 = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Banyak Suara', yt: YT },
+    token: user1Token, body: { title: 'Banyak Suara', yt: ytBaru() },
   })).json.track;
 
   await h.api('POST', '/api/vote', { token: user1Token, body: { trackId: t2.id } });
@@ -249,7 +258,7 @@ test('voting mengubah urutan antrean (vote terbanyak di depan)', async () => {
 test('voting dimatikan → 403', async () => {
   await resetQueue();
   const t = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Korban Lock', yt: YT },
+    token: user1Token, body: { title: 'Korban Lock', yt: ytBaru() },
   })).json.track;
   await h.api('PATCH', '/api/event', { token: adminToken, body: { allowVotes: false } });
   const r = await h.api('POST', '/api/vote', { token: user2Token, body: { trackId: t.id } });
@@ -293,10 +302,10 @@ test('status pemutar tersimpan & tampil di state publik', async () => {
 test('advance memutar vote tertinggi & menyalakan autoNext', async () => {
   await resetQueue();
   const t1 = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Rendah', yt: YT },
+    token: user1Token, body: { title: 'Rendah', yt: ytBaru() },
   })).json.track;
   const t2 = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Tinggi', yt: YT },
+    token: user1Token, body: { title: 'Tinggi', yt: ytBaru() },
   })).json.track;
   await h.api('POST', '/api/vote', { token: user2Token, body: { trackId: t2.id } });
   await h.api('POST', '/api/dj/auto', { token: adminToken, body: { enabled: false } });
@@ -318,9 +327,9 @@ test('advance memutar vote tertinggi & menyalakan autoNext', async () => {
 
 test('clear-all menyisakan lagu yang sedang diputar; clear-done menghapus riwayat', async () => {
   await resetQueue();
-  await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Antre', yt: YT } });
+  await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Antre', yt: ytBaru() } });
   await h.api('POST', '/api/dj/advance', { token: adminToken }); // mainkan satu
-  await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Belum Main', yt: YT } });
+  await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Belum Main', yt: ytBaru() } });
 
   await h.api('POST', '/api/dj/clear-all', { token: adminToken });
   let st = (await h.api('GET', '/api/state')).json;
@@ -335,7 +344,7 @@ test('clear-all menyisakan lagu yang sedang diputar; clear-done menghapus riwaya
 test('aksi per lagu: reject/play/done/link/audio/up-down', async () => {
   await resetQueue();
   const t1 = (await h.api('POST', '/api/request', {
-    token: user1Token, body: { title: 'Lagu Satu', yt: YT },
+    token: user1Token, body: { title: 'Lagu Satu', yt: ytBaru() },
   })).json.track;
 
   const reject = await h.api('POST', `/api/dj/track/${t1.id}`, {
@@ -344,8 +353,8 @@ test('aksi per lagu: reject/play/done/link/audio/up-down', async () => {
   assert.equal(reject.json.track.status, 'rejected');
 
   // play & done
-  const a = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'A', yt: YT } })).json.track;
-  const b = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'B', yt: YT } })).json.track;
+  const a = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'A', yt: ytBaru() } })).json.track;
+  const b = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'B', yt: ytBaru() } })).json.track;
   await h.api('POST', `/api/dj/track/${a.id}`, { token: adminToken, body: { action: 'play' } });
   let st = (await h.api('GET', '/api/state')).json;
   assert.equal(st.tracks.find((t) => t.id === a.id).status, 'playing');
@@ -381,8 +390,8 @@ test('aksi per lagu: reject/play/done/link/audio/up-down', async () => {
 
 test('geser antrean (up/down) hanya saat vote sama', async () => {
   await resetQueue();
-  const t1 = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Urut A', yt: YT } })).json.track;
-  const t2 = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Urut B', yt: YT } })).json.track;
+  const t1 = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Urut A', yt: ytBaru() } })).json.track;
+  const t2 = (await h.api('POST', '/api/request', { token: user1Token, body: { title: 'Urut B', yt: ytBaru() } })).json.track;
   await h.api('POST', '/api/vote', { token: user2Token, body: { trackId: t2.id } }); // t2 unggul
 
   const gagal = await h.api('POST', `/api/dj/track/${t1.id}`, {
@@ -586,4 +595,116 @@ test('SSE: POST /api/dj/beat mengalirkan named event "beat"', async () => {
   ac.abort();
   assert.ok(ada, 'harus menerima event: beat');
   assert.match(buf, /"bpm":120/);
+});
+
+/* ------------------------------------------ 10. dedupe, durasi & statistik */
+
+test('dedupe: video yang sama tidak masuk antrean dua kali', async () => {
+  await resetQueue();
+  const t1 = (await login(h, 'user1')).token;
+  const t2 = (await login(h, 'user2')).token;
+  const id = ytBaru();
+  const pertama = await h.api('POST', '/api/request', {
+    token: t1, body: { title: 'Lagu Sama', artist: 'Artis', yt: id, dur: 225 },
+  });
+  assert.equal(pertama.status, 201);
+  assert.equal(pertama.json.duplikat, undefined, 'request pertama bukan duplikat');
+
+  const kedua = await h.api('POST', '/api/request', {
+    token: t2, body: { title: 'Lagu Sama Lagi', artist: 'Artis', yt: id, dur: 225 },
+  });
+  assert.equal(kedua.status, 200);
+  assert.equal(kedua.json.duplikat, true);
+  assert.equal(kedua.json.posisi, 1, 'lagu sudah ada di posisi #1');
+  assert.equal(kedua.json.sudahVote, true, 'keinginan peminta kedua dihitung sebagai vote');
+
+  const st = (await h.api('GET', '/api/state')).json;
+  assert.equal(st.tracks.filter((t) => t.status === 'queued').length, 1, 'tidak ada duplikat di antrean');
+  await resetQueue();
+});
+
+test('dedupe: judul sama tapi video berbeda tetap boleh masuk', async () => {
+  await resetQueue();
+  const t1 = (await login(h, 'user1')).token;
+  const a = await h.api('POST', '/api/request', { token: t1, body: { title: 'Sama', yt: ytBaru() } });
+  const b = await h.api('POST', '/api/request', { token: t1, body: { title: 'Sama', yt: ytBaru() } });
+  assert.equal(a.status, 201);
+  assert.equal(b.status, 201, 'video berbeda → bukan duplikat');
+  await resetQueue();
+});
+
+test('batas durasi: mode tolak menolak, mode tandai meng-antre dengan tanda', async () => {
+  await resetQueue();
+  const t1 = (await login(h, 'user1')).token;
+  await h.api('PATCH', '/api/event', {
+    token: adminToken, body: { maksDurasiMenit: 6, perlakuanDurasiPanjang: 'tolak' },
+  });
+  const tolak = await h.api('POST', '/api/request', {
+    token: t1, body: { title: 'Lagu Panjang', yt: ytBaru(), dur: 540 },
+  });
+  assert.equal(tolak.status, 403);
+  assert.equal(tolak.json.melebihiBatas, true);
+  assert.match(tolak.json.error, /9 menit/, 'alasannya menyebut lamanya');
+
+  await h.api('PATCH', '/api/event', { token: adminToken, body: { perlakuanDurasiPanjang: 'tandai' } });
+  const tandai = await h.api('POST', '/api/request', {
+    token: t1, body: { title: 'Lagu Panjang', yt: ytBaru(), dur: 540 },
+  });
+  assert.equal(tandai.status, 201);
+  assert.equal(tandai.json.melebihiBatas, true);
+  assert.match(tandai.json.catatan, /batas/, 'tamu dapat catatan');
+
+  const st = (await h.api('GET', '/api/state')).json;
+  assert.equal(st.statistik.berlebihan, 1, 'statistik menghitung lagu di luar batas');
+  await h.api('PATCH', '/api/event', {
+    token: adminToken, body: { maksDurasiMenit: 0, perlakuanDurasiPanjang: 'tandai' },
+  });
+  await resetQueue();
+});
+
+test('POST /api/dj/durasi: menyimpan durasi & menandai yang melewati batas', async () => {
+  await resetQueue();
+  const t1 = (await login(h, 'user1')).token;
+  const t = (await h.api('POST', '/api/request', {
+    token: t1, body: { title: 'Durasi', yt: ytBaru() },
+  })).json.track;
+  const simpan = await h.api('POST', '/api/dj/durasi', { token: adminToken, body: { id: t.id, dur: 225 } });
+  assert.equal(simpan.status, 200);
+  let st = (await h.api('GET', '/api/state')).json;
+  assert.equal(st.tracks.find((x) => x.id === t.id).dur, 225);
+
+  await h.api('PATCH', '/api/event', { token: adminToken, body: { maksDurasiMenit: 6 } });
+  await h.api('POST', '/api/dj/durasi', { token: adminToken, body: { id: t.id, dur: 540 } });
+  st = (await h.api('GET', '/api/state')).json;
+  assert.equal(st.tracks.find((x) => x.id === t.id).melebihiBatas, true, 'durasi melebihi batas ditandai');
+  await h.api('PATCH', '/api/event', { token: adminToken, body: { maksDurasiMenit: 0 } });
+  await resetQueue();
+});
+
+test('statistik: total antrean & sudah diputar memakai durasi yang diketahui', async () => {
+  await resetQueue();
+  const t1 = (await login(h, 'user1')).token;
+  const t = (await h.api('POST', '/api/request', {
+    token: t1, body: { title: 'Statistik', yt: ytBaru(), dur: 300 },
+  })).json.track;
+  await h.api('POST', '/api/dj/durasi', { token: adminToken, body: { id: t.id, dur: 300 } });
+  const st = (await h.api('GET', '/api/state')).json;
+  assert.equal(st.statistik.antrean.lagu, 1);
+  assert.equal(st.statistik.antrean.detik, 300);
+  assert.equal(st.statistik.antrean.durasiDiketahui, 1);
+  await resetQueue();
+});
+
+test('status pemutar: heartbeat menjawab status terbaru (termasuk posisi)', async () => {
+  const r = await h.api('POST', '/api/player/status', {
+    token: adminToken,
+    body: { panel: 'panel-uji', status: 'memutar', detail: 'Lagu Uji', trackId: 'x', posisi: 42 },
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.player.status, 'memutar');
+  assert.equal(r.json.player.posisi, 42);
+  assert.ok(r.json.player.updatedAt > 0, 'stempel "masih hidup" ikut terbalas');
+  const st = (await h.api('GET', '/api/state')).json;
+  assert.equal(st.player.detail, 'Lagu Uji', 'state publik ikut memuat status pemutar');
+  await h.api('POST', '/api/player/release', { token: adminToken, body: { panel: 'panel-uji' } });
 });
