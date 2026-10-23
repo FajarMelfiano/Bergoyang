@@ -899,6 +899,31 @@
   margin-top: 12px;
 }
 
+.panitia__tambah {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 2%, transparent);
+}
+
+.panitia__form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.panitia__form-grid input,
+.panitia__form-grid select {
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
 .panitia__item {
   border: 1px solid var(--line);
   border-radius: 10px;

@@ -1972,6 +1972,34 @@ async function handleApi(req, res, url) {
       });
     }
 
+    /* --- tambah panitia baru (admin) --- */
+    if (method === 'POST' && p === '/api/dj/users') {
+      if (!kelola) return sendJson(res, 403, { error: 'Panel DJ hanya untuk admin.' });
+      const username = clean(body.username, 40).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+      const nama = clean(body.nama, 60) || username;
+      const password = clean(body.password, 64);
+      const peran = body.peran === 'admin' ? 'admin' : 'user';
+
+      if (!username || username.length < 3) {
+        return sendJson(res, 400, { error: 'Username minimal 3 karakter (hanya huruf, angka, _, -).' });
+      }
+      if (password.length < 6) {
+        return sendJson(res, 400, { error: 'Password minimal 6 karakter.' });
+      }
+      if (state.users.some((x) => x.username === username)) {
+        return sendJson(res, 409, { error: `Username "${username}" sudah digunakan.` });
+      }
+
+      const baru = buatUser(username, nama, password, peran);
+      mutate(() => {
+        state.users.push(baru);
+      });
+      return sendJson(res, 201, {
+        ok: true,
+        user: { username: baru.username, nama: baru.nama, peran: baru.peran },
+      });
+    }
+
     /* --- reset password panitia (admin): tanpa perlu password lama, buat
      *     ulang password orang yang lupa. Sesi lama user tsb otomatis hangus
      *     karena hash ikut dicampur ke dalam token. --- */

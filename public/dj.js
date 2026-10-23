@@ -1709,6 +1709,57 @@ function setupKelolaPanitia() {
   box.addEventListener('toggle', () => {
     if (box.open && bisaKelola()) muatDaftarPanitia();
   });
+
+  const formTambah = $('tambahPanitiaForm');
+  if (formTambah) {
+    formTambah.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const uInput = $('tambahUsername');
+      const nInput = $('tambahNama');
+      const pInput = $('tambahPassword');
+      const rInput = $('tambahPeran');
+      const btn = $('tambahPanitiaBtn');
+
+      const username = uInput.value.trim().toLowerCase();
+      const nama = nInput.value.trim() || username;
+      const password = pInput.value;
+      const peran = rInput.value;
+
+      if (!username || username.length < 3) {
+        note.dataset.tone = 'error';
+        note.textContent = 'Username minimal 3 karakter.';
+        uInput.focus();
+        return;
+      }
+      if (password.length < 6) {
+        note.dataset.tone = 'error';
+        note.textContent = 'Password minimal 6 karakter.';
+        pInput.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      note.dataset.tone = '';
+      note.textContent = `Menambahkan panitia ${username}…`;
+      try {
+        await api('/api/dj/users', 'POST', { username, nama, password, peran });
+        note.dataset.tone = 'ok';
+        note.textContent = `Panitia ${nama} (@${username}) berhasil ditambahkan.`;
+        uInput.value = '';
+        nInput.value = '';
+        pInput.value = '';
+        rInput.value = 'user';
+        await muatDaftarPanitia();
+        toast(`Panitia ${nama} ditambahkan.`);
+      } catch (err) {
+        note.dataset.tone = 'error';
+        note.textContent = err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
   return { muatDaftarPanitia, tutupForm };
 }
 

@@ -245,13 +245,27 @@
         </div>
       </details>
 
-      <!-- kelola panitia: reset password panitia yang lupa (admin) -->
+      <!-- kelola panitia: reset password panitia yang lupa & tambah panitia baru (admin) -->
       <details class="settings" id="panitiaBox">
         <summary>Kelola panitia</summary>
         <p class="hint">
-          Kalau ada panitia yang lupa password, kamu bisa bikin password baru di sini
-          tanpa perlu password lamanya. Sesi panitia yang sedang login langsung keluar.
+          Kelola akun panitia dan reset password panitia yang lupa tanpa perlu password lama.
         </p>
+
+        <form class="panitia__tambah" id="tambahPanitiaForm">
+          <strong style="display:block;margin-bottom:8px;font-size:0.85rem;">Tambah panitia baru:</strong>
+          <div class="panitia__form-grid">
+            <input type="text" id="tambahUsername" placeholder="Username (mis. dio)" required autocomplete="off" />
+            <input type="text" id="tambahNama" placeholder="Nama tampilan (mis. Dio)" />
+            <input type="password" id="tambahPassword" placeholder="Password (min. 6 kar)" required autocomplete="new-password" />
+            <select id="tambahPeran">
+              <option value="user">Panitia biasa</option>
+              <option value="admin">Admin DJ</option>
+            </select>
+            <button type="submit" class="btn btn--amber btn--sm" id="tambahPanitiaBtn">Tambah</button>
+          </div>
+        </form>
+
         <div class="panitia" id="panitiaList" aria-live="polite"></div>
         <p class="form-note" id="panitiaNote" role="alert"></p>
       </details>

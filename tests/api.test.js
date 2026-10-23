@@ -138,6 +138,54 @@ test('admin boleh membaca daftar panitia tanpa hash/salt', async () => {
   }
 });
 
+test('tambah panitia: user biasa 403, validasi input, sukses 201 & bisa login', async () => {
+  // 1. user biasa ditolak
+  const r1 = await h.api('POST', '/api/dj/users', {
+    token: user1Token,
+    body: { username: 'dio', nama: 'Dio', password: 'dio12345' },
+  });
+  assert.equal(r1.status, 403);
+
+  // 2. validasi: username pendek
+  const r2 = await h.api('POST', '/api/dj/users', {
+    token: adminToken,
+    body: { username: 'ab', password: 'dio12345' },
+  });
+  assert.equal(r2.status, 400);
+
+  // 3. validasi: password pendek
+  const r3 = await h.api('POST', '/api/dj/users', {
+    token: adminToken,
+    body: { username: 'dio', password: '123' },
+  });
+  assert.equal(r3.status, 400);
+
+  // 4. sukses buat user dio
+  const r4 = await h.api('POST', '/api/dj/users', {
+    token: adminToken,
+    body: { username: 'dio', nama: 'Dio', password: 'dio12345', peran: 'user' },
+  });
+  assert.equal(r4.status, 201);
+  assert.equal(r4.json.user.username, 'dio');
+  assert.equal(r4.json.user.nama, 'Dio');
+  assert.equal(r4.json.user.peran, 'user');
+
+  // 5. duplikat username ditolak
+  const r5 = await h.api('POST', '/api/dj/users', {
+    token: adminToken,
+    body: { username: 'dio', password: 'dio12345' },
+  });
+  assert.equal(r5.status, 409);
+
+  // 6. user baru bisa login
+  const r6 = await h.api('POST', '/api/login', {
+    body: { username: 'dio', password: 'dio12345' },
+  });
+  assert.equal(r6.status, 200);
+  assert.equal(r6.json.username, 'dio');
+  assert.equal(r6.json.peran, 'user');
+});
+
 /* --------------------------------------------------------- 4. alur request */
 
 test('request anonim → 401', async () => {
